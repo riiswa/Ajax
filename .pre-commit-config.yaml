@@ -1,0 +1,56 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+default_language_version:
+    python: python3.11
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.0.1
+    hooks:
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+
+  - repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+      - id: black
+        args: ["--check","--preview","--line-length","88"]
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--check","--profile", "black"]
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 6.0.0
+    hooks:
+      - id: flake8
+        additional_dependencies: [mccabe]
+        exclude: tests/
+
+        args:
+          [
+            "--max-line-length",
+            "88",
+            "--max-complexity",
+            "10",
+            "--ignore",
+            "E203, W503, E501, F821, C901",
+          ]
+
+  - repo: https://github.com/PyCQA/pylint/
+    rev: v2.17.4
+    hooks:
+      - id: pylint
+        exclude: src/probing_environments/envs.py
+        args: ["--rcfile=.pylintrc" ,"--fail-under=9"]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: "v1.4.1" # Use the sha / tag you want to point at
+    hooks:
+      - id: mypy
+        args: [--ignore-missing-imports]
+        verbose: true
+        entry: bash -c 'mypy "$@" || true' --
