@@ -31,6 +31,7 @@ def prepare_env(
     num_envs: int = 1,
     normalize_obs: bool = True,
     normalize_reward: bool = False,
+    gamma: Optional[float] = None,  # Discount factor for reward normalization
 ) -> Tuple[EnvType, Optional[EnvParams], Union[str, EnvType], bool]:
     if isinstance(env_id, str):
         env, env_params = build_env_from_id(
@@ -43,9 +44,6 @@ def prepare_env(
 
     continuous = check_if_environment_has_continuous_actions(env)
 
-    if not continuous:
-        return env, env_params, env_id, continuous
-
     mode = get_env_type(env)
 
     ClipAction, NormalizeVecObservation, NormalizeVecReward = get_wrappers(mode)
@@ -54,19 +52,7 @@ def prepare_env(
     if normalize_obs:
         env = NormalizeVecObservation(env)
     if normalize_reward:
-        env = NormalizeVecReward(env)
+        assert gamma is not None, "Gamma must be provided for reward normalization."
+        env = NormalizeVecReward(env, gamma=gamma)
 
     return env, env_params, env_id, continuous
-
-
-def extract_obs_and_reward(state, mode: str):
-    """
-    Extract observation and reward from the environment state.
-    Handles both Brax and Gymnax environments.
-    """
-    if mode == "brax":
-        return state.obs, state.reward
-    elif mode == "gymnax":
-        return state[0], state[2]  # (obs, state, reward, done, info)
-    else:
-        raise ValueError(f"Unsupported mode: {mode}")

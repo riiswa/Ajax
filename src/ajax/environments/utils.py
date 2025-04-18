@@ -1,3 +1,4 @@
+import jax.numpy as jnp
 from ajax.types import BraxEnv, EnvType, GymnaxEnv
 
 
@@ -5,7 +6,7 @@ def check_if_environment_has_continuous_actions(env):
     env = get_raw_env(env)
     if check_env_is_brax(env):
         return True
-    return not ("Discrete" in str(env.action_space))
+    return env.action_space().dtype == jnp.float32
 
 
 def get_raw_env(env: EnvType) -> EnvType:
