@@ -1,8 +1,10 @@
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 import flashbax as fbx
+import flax
 import jax
 import jax.numpy as jnp
+import optax
 from ajax.types import EnvStateType, EnvType, HiddenState
 from flax import struct
 from flax.training.train_state import TrainState
@@ -32,11 +34,16 @@ class CollectorState:
 
 
 @struct.dataclass
-class MaybeRecurrentTrainState(TrainState):
-    hidden_state: Optional[Any] = (
-        None  # HiddenState can be replaced with Any for flexibility
-    )
+class LoadedTrainState(TrainState):
+    hidden_state: Optional[Any] = None
     recurrent: bool = False
+    target_params: Optional[flax.core.FrozenDict] = None
+
+    def soft_update(self, tau):
+        new_target_params = optax.incremental_update(
+            self.params, self.target_params, tau
+        )
+        return self.replace(target_params=new_target_params)
 
     @classmethod
     def create(cls, *, hidden_state=None, apply_fn: Callable = None, **kwargs):
@@ -56,8 +63,8 @@ class MaybeRecurrentTrainState(TrainState):
 class BaseAgentState:
     rng: jax.Array
     collector: CollectorState
-    actor_state: MaybeRecurrentTrainState
-    critic_state: MaybeRecurrentTrainState
+    actor_state: LoadedTrainState
+    critic_state: LoadedTrainState
     collector_state: CollectorState
 
 
@@ -65,3 +72,18 @@ class BaseAgentState:
 class AgentConfig:
     seed: int
     gamma: float
+
+
+@struct.dataclass
+class NetworkConfig:
+    actor_architecture: Tuple[str]
+    critic_architecture: Tuple[str]
+    lstm_hidden_size: Optional[int] = None
+    squash: bool = False
+
+
+@struct.dataclass
+class OptimizerConfig:
+    learning_rate: float | Callable[[int], float]
+    max_grad_norm: Optional[float] = 0.5
+    clipped: bool = True
