@@ -1,10 +1,18 @@
 from typing import Any, Optional, Tuple
 
 import chex
+import distrax
 import flashbax as fbx
 import jax
 import jax.numpy as jnp
-from ajax.state import BaseAgentState, EnvironmentConfig, LoadedTrainState
+from ajax.buffers.utils import init_buffer
+from ajax.state import (
+    BaseAgentState,
+    CollectorState,
+    EnvironmentConfig,
+    LoadedTrainState,
+)
+from flax.core import FrozenDict
 from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
 
@@ -84,10 +92,11 @@ def step_env(
 )
 def get_pi(
     actor_state: LoadedTrainState,
+    actor_params: FrozenDict,
     obs: jax.Array,
     done: Optional[jax.Array] = None,
     recurrent: bool = False,
-) -> Tuple[jax.Array, LoadedTrainState]:
+) -> Tuple[distrax.Distribution, LoadedTrainState]:
     """
     Get the policy distribution for the given observation and actor state.
 
@@ -100,13 +109,14 @@ def get_pi(
     Returns:
         Tuple[jax.Array, jax.Array]: Policy distribution and new hidden state (if recurrent).
     """
-
+    obs = maybe_add_axis(obs, recurrent)
+    done = maybe_add_axis(done, recurrent)
     if recurrent:
         pi, new_actor_hidden_state = actor_state.apply(
-            actor_state.params, obs, hidden_state=actor_state.hidden_state, done=done
+            actor_params, obs, hidden_state=actor_state.hidden_state, done=done
         )
     else:
-        pi = actor_state.apply(actor_state.params, obs)
+        pi = actor_state.apply(actor_params, obs)
         new_actor_hidden_state = None
 
     return pi, actor_state.replace(hidden_state=new_actor_hidden_state)
@@ -162,8 +172,9 @@ def get_action_and_new_agent_state(
 
     pi, new_actor_state = get_pi(
         actor_state=agent_state.actor_state,
-        obs=maybe_add_axis(obs, recurrent),
-        done=maybe_add_axis(done, recurrent),
+        actor_params=agent_state.actor_state.params,
+        obs=obs,
+        done=done,
         recurrent=recurrent,
     )
 
@@ -202,8 +213,8 @@ def collect_experience(
     """
     action, agent_state = get_action_and_new_agent_state(
         agent_state,
-        agent_state.collector.last_obs,
-        agent_state.collector.last_done,
+        agent_state.collector_state.last_obs,
+        agent_state.collector_state.last_done,
         recurrent=recurrent,
     )
 
@@ -212,7 +223,6 @@ def collect_experience(
     rng_step = (
         jax.random.split(step_key, env_args.num_envs) if mode == "gymnax" else step_key
     )
-
     obsv, env_state, reward, done, info = step_env(
         rng_step,
         agent_state.collector_state.env_state,
@@ -226,7 +236,7 @@ def collect_experience(
         agent_state.collector_state.buffer_state,
         {
             "obs": agent_state.collector_state.last_obs,
-            "action": action[:, None],
+            "action": action,  # if action.ndim == 2 else action[:, None]
             "reward": reward[:, None],
             "done": agent_state.collector_state.last_done[:, None],
             "next_obs": obsv,
@@ -243,3 +253,29 @@ def collect_experience(
     agent_state = agent_state.replace(collector_state=new_collector_state)
 
     return agent_state, None
+
+
+@partial(jax.jit, static_argnames=["mode", "env_args", "buffer"])
+def init_collector_state(
+    rng: jax.Array,
+    env_args: EnvironmentConfig,
+    mode: str,
+    buffer: Optional[fbx.flat_buffer.TrajectoryBuffer] = None,
+):
+    last_done = jnp.zeros(env_args.num_envs)
+
+    reset_key, rng = jax.random.split(rng)
+    reset_keys = (
+        jax.random.split(reset_key, env_args.num_envs)
+        if mode == "gymnax"
+        else reset_key
+    )
+    last_obs, env_state = reset_env(reset_keys, env_args.env, mode, env_args.env_params)
+    return CollectorState(
+        rng=rng,
+        env_state=env_state,
+        last_obs=last_obs,
+        buffer_state=init_buffer(buffer, env_args) if buffer is not None else None,
+        timestep=0,
+        last_done=last_done,
+    )

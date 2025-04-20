@@ -71,10 +71,12 @@ def get_raw_env(env: EnvType) -> EnvType:
 
 
 def check_env_is_brax(env) -> bool:
+    env = get_raw_env(env)
     return isinstance(env, BraxEnv) or "brax" in str(type(env)).lower()
 
 
 def check_env_is_gymnax(env) -> bool:
+    env = get_raw_env(env)
     return isinstance(env, GymnaxEnv) or "gymnax" in str(type(env)).lower()
 
 
@@ -82,7 +84,7 @@ def get_env_type(env: EnvType) -> str:
     """
     Get the type of the environment.
     """
-    env = get_raw_env(env)
+
     if check_env_is_brax(env):
         return "brax"
     elif check_env_is_gymnax(env):

@@ -4,6 +4,7 @@ import distrax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from ajax.agents.sac.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.networks.scanned_rnn import ScannedRNN
 from ajax.networks.utils import get_adam_tx, parse_architecture, uniform_init
@@ -76,7 +77,11 @@ class Actor(nn.Module):
             mean = self.mean(embedding)
             log_std = jnp.clip(self.log_std(embedding), -5, 2)
             std = jnp.exp(log_std)
-            return distrax.Normal(mean, std)
+            return (
+                distrax.Normal(mean, std)
+                if not self.squash
+                else SquashedNormal(mean, std)
+            )
         return self.model(embedding)
 
 
@@ -138,8 +143,8 @@ def get_initialized_actor_critic(
     observation_shape, action_shape = get_state_action_shapes(
         env_config.env, env_config.env_params
     )
-    init_obs = jnp.zeros(observation_shape)
-    init_action = jnp.zeros(action_shape)
+    init_obs = jnp.zeros((env_config.num_envs, *observation_shape))
+    init_action = jnp.zeros((env_config.num_envs, *action_shape))
     actor_state = init_network_state(
         init_x=init_obs,
         network=actor,
@@ -188,3 +193,9 @@ def init_network_state(init_x, network, key, tx, recurrent, lstm_hidden_size, nu
         recurrent=recurrent,
         target_params=params,
     )
+
+
+def predict_value(
+    critic_state: LoadedTrainState, critic_params: FrozenDict, x: jax.Array
+) -> jax.Array:
+    return critic_state.apply_fn(critic_params, x)

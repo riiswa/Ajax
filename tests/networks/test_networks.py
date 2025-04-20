@@ -9,6 +9,7 @@ from ajax.networks.networks import (
     Encoder,
     MultiCritic,
     get_initialized_actor_critic,
+    predict_value,
 )
 from ajax.state import (
     EnvironmentConfig,
@@ -266,3 +267,45 @@ def test_get_initialized_actor_critic_continuous(
         fast_env_config.num_envs,
         1,
     )  # Ensure output shape matches (num, batch_size, 1)
+
+
+def test_predict_value(real_env_config, actor_architecture, critic_architecture):
+    key = jax.random.PRNGKey(0)
+    optimizer_config = OptimizerConfig(learning_rate=0.001)
+    network_config = NetworkConfig(
+        actor_architecture=actor_architecture,
+        critic_architecture=critic_architecture,
+        lstm_hidden_size=None,
+    )
+    num_critics = 2
+    actor_state, critic_state = get_initialized_actor_critic(
+        key=key,
+        env_config=real_env_config,
+        optimizer_config=optimizer_config,
+        network_config=network_config,
+        continuous=False,
+        action_value=True,
+        num_critics=num_critics,
+    )
+
+    observation_shape, action_shape = get_state_action_shapes(
+        real_env_config.env, real_env_config.env_params
+    )
+    init_obs = jnp.zeros((real_env_config.num_envs, *observation_shape))
+    init_action = jnp.zeros((real_env_config.num_envs, *action_shape))
+    input_data = jnp.hstack([init_obs, init_action])
+
+    # Predict value using the critic
+    predicted_value = predict_value(critic_state, critic_state.params, input_data)
+
+    assert predicted_value.shape == (
+        num_critics,
+        real_env_config.num_envs,
+        1,
+    ), "Shape mismatch in predicted value."
+    assert jnp.all(
+        jnp.isfinite(predicted_value)
+    ), "Predicted value contains invalid values."
+    assert not jnp.allclose(
+        predicted_value[0], predicted_value[1]
+    ), "Predicted values for both critics are identical."

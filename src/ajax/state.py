@@ -62,7 +62,6 @@ class LoadedTrainState(TrainState):
 @struct.dataclass
 class BaseAgentState:
     rng: jax.Array
-    collector: CollectorState
     actor_state: LoadedTrainState
     critic_state: LoadedTrainState
     collector_state: CollectorState
@@ -87,3 +86,25 @@ class OptimizerConfig:
     learning_rate: float | Callable[[int], float]
     max_grad_norm: Optional[float] = 0.5
     clipped: bool = True
+
+
+@struct.dataclass
+class AlphaConfig:
+    alpha_init: float
+    learning_rate: float
+
+
+@struct.dataclass
+class BufferConfig:
+    buffer_size: int
+    batch_size: int
+    num_envs: int
+
+
+@struct.dataclass
+class BaseAgentConfig:
+    """
+    The agent properties to be carried over iterations of environment interaction and updates
+    """
+
+    gamma: float
