@@ -1,4 +1,6 @@
 import pytest
+from gymnax import make as make_gymnax_env
+
 from ajax.environments.create import build_env_from_id, prepare_env
 from ajax.wrappers import (
     NormalizeVecObservation,
@@ -6,8 +8,6 @@ from ajax.wrappers import (
     NormalizeVecReward,
     NormalizeVecRewardBrax,
 )
-from brax.envs import create as create_brax_env
-from gymnax import make as make_gymnax_env
 
 
 @pytest.mark.parametrize(
@@ -51,14 +51,13 @@ def test_prepare_env(env_input, normalize_obs, normalize_rew, expected_continuou
 
     # Test Gymnax environments
     if env_input in ["CartPole-v1", "Pendulum-v1"]:
-        real_env, real_env_params = make_gymnax_env(env_input)
+        _, real_env_params = make_gymnax_env(env_input)
         assert env_params == real_env_params
         assert hasattr(env, "reset")
         assert hasattr(env, "step")
 
     # Test Brax environments
     if env_input == "fast":
-        real_env = create_brax_env(env_input)
         assert hasattr(env, "reset")
         assert hasattr(env, "step")
 

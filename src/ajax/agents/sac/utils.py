@@ -43,14 +43,14 @@ class SquashedNormal(distrax.Normal):
     """A Normal distribution with tanh-squashed samples and corrected log probabilities."""
 
     def sample(self, seed: jax.Array) -> jax.Array:
-        """
-        Samples an action and applies tanh squashing.
+        """Samples an action and applies tanh squashing.
 
         Args:
             seed (jax.Array): PRNG key for sampling.
 
         Returns:
             jax.Array: Squashed action.
+
         """
         # Sample raw action
         raw_action = super().sample(seed=seed)
@@ -61,14 +61,14 @@ class SquashedNormal(distrax.Normal):
         return squashed_action
 
     def mean(self) -> jax.Array:
-        """
-        Samples an action and applies tanh squashing.
+        """Samples an action and applies tanh squashing.
 
         Args:
             seed (jax.Array): PRNG key for sampling.
 
         Returns:
             jax.Array: Squashed action.
+
         """
         # Sample raw action
         raw_mean = super().mean()
@@ -79,14 +79,14 @@ class SquashedNormal(distrax.Normal):
         return squashed_mean
 
     def log_prob(self, value: jax.Array) -> jax.Array:
-        """
-        Computes the corrected log probability for a given squashed action.
+        """Computes the corrected log probability for a given squashed action.
 
         Args:
             value (jax.Array): Squashed action.
 
         Returns:
             jax.Array: Corrected log probability.
+
         """
         # Inverse tanh to get the raw action
         raw_action = jnp.arctanh(jnp.clip(value, -0.999999, 0.999999))
@@ -102,14 +102,14 @@ class SquashedNormal(distrax.Normal):
         return raw_log_prob - correction
 
     def sample_and_log_prob(self, seed: jax.Array) -> tuple:
-        """
-        Samples an action, applies tanh squashing, and computes the corrected log probability.
+        """Samples an action, applies tanh squashing, and computes the corrected log probability.
 
         Args:
             seed (jax.Array): PRNG key for sampling.
 
         Returns:
             tuple: Squashed action and corrected log probability.
+
         """
         # Sample raw action and compute its log probability
         raw_action, raw_log_prob = super().sample_and_log_prob(seed=seed)

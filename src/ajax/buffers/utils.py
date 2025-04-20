@@ -1,11 +1,10 @@
-from typing import Any, Callable, Dict, NamedTuple, Optional, Sequence, Tuple
-
 import flashbax as fbx
 import jax
 import jax.numpy as jnp
+from jax.tree_util import Partial as partial
+
 from ajax.environments.utils import get_state_action_shapes
 from ajax.state import EnvironmentConfig
-from jax.tree_util import Partial as partial
 
 
 def get_buffer(
@@ -28,7 +27,8 @@ def init_buffer(
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     # Get the state and action shapes for the environment
     observation_shape, action_shape = get_state_action_shapes(
-        env_args.env, env_args.env_params
+        env_args.env,
+        env_args.env_params,
     )
 
     # Initialize the action as a single action for a single timestep (not batched)
@@ -52,7 +52,7 @@ def init_buffer(
             "reward": reward,  # Single reward (shape: [1])
             "done": done,  # Single done flag (shape: [1])
             "next_obs": obsv,  # Next observation (same shape as 'obs')
-        }
+        },
     )
 
     return buffer_state

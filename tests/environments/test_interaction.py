@@ -1,9 +1,11 @@
 import distrax
-import flashbax as fbx
 import jax
 import jax.numpy as jnp
 import optax
 import pytest
+from brax.envs import create as create_brax_env
+from gymnax import make as make_gymnax_env
+
 from ajax.agents.sac.utils import SquashedNormal
 from ajax.buffers.utils import get_buffer, init_buffer
 from ajax.environments.interaction import (
@@ -14,7 +16,6 @@ from ajax.environments.interaction import (
     reset_env,
     step_env,
 )
-from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -22,9 +23,6 @@ from ajax.state import (
     EnvStateType,
     LoadedTrainState,
 )
-from brax.envs import create as create_brax_env
-from flax.training.train_state import TrainState
-from gymnax import make as make_gymnax_env
 
 NUM_ENVS = 4
 
@@ -158,42 +156,25 @@ def test_step_env_brax(brax_env):
     assert done.shape == (NUM_ENVS,)
 
 
-def test_get_pi(mock_actor_state_discrete):
-    """Test get_pi with a mock actor state."""
+@pytest.mark.parametrize(
+    "mock_actor_state, expected_distribution",
+    [
+        ("mock_actor_state_discrete", distrax.Categorical),
+        ("mock_actor_state_continuous", distrax.Normal),
+        ("mock_actor_state_continuous_squashed", SquashedNormal),
+    ],
+)
+def test_get_pi(mock_actor_state, expected_distribution, request):
+    """Test get_pi with different mock actor states."""
     obs = jnp.array([[1.0, 2.0]])
+    mock_actor_state = request.getfixturevalue(mock_actor_state)
     pi, new_actor_state = get_pi(
-        actor_state=mock_actor_state_discrete,
-        actor_params=mock_actor_state_discrete.params,
+        actor_state=mock_actor_state,
+        actor_params=mock_actor_state.params,
         obs=obs,
         recurrent=False,
     )
-    assert isinstance(pi, distrax.Categorical)
-    assert new_actor_state.hidden_state is None
-
-
-def test_get_pi(mock_actor_state_continuous):
-    """Test get_pi with a mock actor state."""
-    obs = jnp.array([[1.0, 2.0]])
-    pi, new_actor_state = get_pi(
-        actor_state=mock_actor_state_continuous,
-        actor_params=mock_actor_state_continuous.params,
-        obs=obs,
-        recurrent=False,
-    )
-    assert isinstance(pi, distrax.Normal)
-    assert new_actor_state.hidden_state is None
-
-
-def test_get_pi(mock_actor_state_continuous_squashed):
-    """Test get_pi with a mock actor state."""
-    obs = jnp.array([[1.0, 2.0]])
-    pi, new_actor_state = get_pi(
-        mock_actor_state_continuous_squashed,
-        mock_actor_state_continuous_squashed.params,
-        obs,
-        recurrent=False,
-    )
-    assert isinstance(pi, SquashedNormal)
+    assert isinstance(pi, expected_distribution)
     assert new_actor_state.hidden_state is None
 
 

@@ -1,7 +1,7 @@
 import distrax
 import jax
 import jax.numpy as jnp
-import pytest
+
 from ajax.agents.sac.utils import (  # correct_log_probs,; sample_actions_and_log_prob,
     SquashedNormal,
 )

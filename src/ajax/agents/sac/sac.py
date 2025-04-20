@@ -1,9 +1,11 @@
 import time  # Add import for measuring execution time
-from typing import Optional, Sequence
+from collections.abc import Sequence
+from typing import Optional
 
-import chex
 import jax
 import jax.numpy as jnp
+from gymnax import EnvParams
+
 from ajax.agents.sac.state import SACConfig
 from ajax.agents.sac.train_sac import make_train
 from ajax.buffers.utils import get_buffer
@@ -14,7 +16,6 @@ from ajax.environments.utils import (
 )
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import EnvType
-from gymnax import EnvParams
 
 
 class SAC:
@@ -26,11 +27,11 @@ class SAC:
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
         num_envs: int = 1,
         learning_rate: float = 3e-4,
-        actor_architecture=["256", "relu", "256", "relu"],
-        critic_architecture=["256", "relu", "256", "relu"],
+        actor_architecture=("256", "relu", "256", "relu"),
+        critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: float = 0.5,
+        max_grad_norm: Optional[float] = 0.5,
         # save: bool = False,
         # save_folder: str = "./models",
         # log_video: bool = False,
@@ -46,7 +47,6 @@ class SAC:
         learning_starts: int = int(1e4),
         tau: float = 0.005,
         reward_scale: float = 5.0,
-        # num_episode_test: int = 2,  # FIXME : really useful?
         alpha_init: float = 1.0,  # FIXME: check value
         target_entropy_per_dim: float = -1.0,
     ) -> None:
@@ -97,14 +97,18 @@ class SAC:
         )
 
         self.buffer = get_buffer(
-            buffer_size=buffer_size, batch_size=batch_size, num_envs=num_envs
+            buffer_size=buffer_size,
+            batch_size=batch_size,
+            num_envs=num_envs,
         )
 
     def train(
-        self, seed: int | Sequence[int] = 42, num_timesteps: int = int(1e6)
+        self,
+        seed: int | Sequence[int] = 42,
+        num_timesteps: int = int(1e6),
+        num_episode_test: int = 10,
     ) -> None:
         """Train the agent"""
-
         if isinstance(seed, int):
             seed = [seed]
 
@@ -119,13 +123,14 @@ class SAC:
                 agent_args=self.agent_args,
                 total_timesteps=num_timesteps,
                 alpha_args=self.alpha_args,
+                num_episode_test=num_episode_test,
             )
 
             agent_state = train_jit(key)
             return agent_state
 
         seed = jnp.array(seed)
-        agent_state = jax.vmap(set_key_and_train, in_axes=0)(seed)
+        return jax.vmap(set_key_and_train, in_axes=0)(seed)
 
         # jax.profiler.save_device_memory_profile("memory.prof")
 
@@ -133,7 +138,10 @@ class SAC:
 if __name__ == "__main__":
     env_id = "halfcheetah"
     sac_agent = SAC(
-        env_id=env_id, learning_starts=int(1e4), reward_scale=1.0, max_grad_norm=None
+        env_id=env_id,
+        learning_starts=int(1e4),
+        reward_scale=1.0,
+        max_grad_norm=None,
     )
 
     start_time = time.time()  # Start timing
@@ -141,5 +149,5 @@ if __name__ == "__main__":
     end_time = time.time()  # End timing
 
     print(
-        f"Training completed in {end_time - start_time:.2f} seconds."
+        f"Training completed in {end_time - start_time:.2f} seconds.",
     )  # Print execution time

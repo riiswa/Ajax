@@ -1,8 +1,9 @@
 import jax.numpy as jnp
 import optax
 import pytest
-from ajax.state import LoadedTrainState
 from flax.training.train_state import TrainState
+
+from ajax.state import LoadedTrainState
 
 
 @pytest.fixture

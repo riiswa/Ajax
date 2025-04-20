@@ -2,6 +2,11 @@ from typing import Any, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+from flax.core import FrozenDict
+from flax.serialization import to_state_dict
+from flax.training.train_state import TrainState
+from jax.tree_util import Partial as partial
+
 from ajax.agents.sac.state import SACConfig, SACState
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
@@ -24,10 +29,6 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import BufferType
-from flax.core import FrozenDict
-from flax.serialization import to_state_dict
-from flax.training.train_state import TrainState
-from jax.tree_util import Partial as partial
 
 
 def create_alpha_train_state(
@@ -70,7 +71,10 @@ def init_sac(
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     collector_state = init_collector_state(
-        collector_key, env_args=env_args, mode=mode, buffer=buffer
+        collector_key,
+        env_args=env_args,
+        mode=mode,
+        buffer=buffer,
     )
 
     alpha = create_alpha_train_state(**to_state_dict(alpha_args))
@@ -93,7 +97,7 @@ def value_loss_function(
     actions: jax.Array,
     observations: jax.Array,
     next_observations: jax.Array,
-    dones: Optional[jax.Array],
+    dones: jax.Array,
     rewards: jax.Array,
     gamma: float,
     alpha: jax.Array,
@@ -136,7 +140,7 @@ def value_loss_function(
     min_q_target = jnp.minimum(q1_target, q2_target)
     log_probs = log_probs.sum(-1, keepdims=True)
     target_q = jax.lax.stop_gradient(
-        rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs)
+        rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs),
     )
 
     assert (
@@ -149,15 +153,13 @@ def value_loss_function(
     loss_q2 = jnp.mean((q2_pred - target_q) ** 2)
     total_loss = loss_q1 + loss_q2
 
-    aux = dict(
-        critic_loss=total_loss,
-        # q1_loss=loss_q1,
-        # q2_loss=loss_q2,
-        q1_pred=q1_pred.mean(),
-        q2_pred=q2_pred.mean(),
-        target_q=target_q.mean(),
-        log_probs=log_probs,
-    )
+    aux = {
+        "critic_loss": total_loss,
+        "q1_pred": q1_pred.mean(),
+        "q2_pred": q2_pred.mean(),
+        "target_q": target_q.mean(),
+        "log_probs": log_probs,
+    }
 
     return total_loss, aux
 
@@ -381,7 +383,9 @@ def update_agent(
 
     sample_key, rng = jax.random.split(agent_state.rng)
     observations, dones, next_observations, rewards, actions = get_batch_from_buffer(
-        buffer, agent_state.collector_state.buffer_state, sample_key
+        buffer,
+        agent_state.collector_state.buffer_state,
+        sample_key,
     )
     agent_state = agent_state.replace(rng=rng)
 
@@ -441,7 +445,14 @@ def update_agent(
 @jax.named_call
 @partial(
     jax.jit,
-    static_argnames=["env_args", "mode", "recurrent", "buffer", "log_frequency"],
+    static_argnames=[
+        "env_args",
+        "mode",
+        "recurrent",
+        "buffer",
+        "log_frequency",
+        "num_episode_test",
+    ],
 )
 def training_iteration(
     agent_state: SACState,
@@ -454,10 +465,9 @@ def training_iteration(
     action_dim: int,
     lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 5000,
+    num_episode_test: int = 10,
 ):
-    """
-    Run one iteration of the algorithm : Collect experience from the environment and use it to update the agent.
-    """
+    """Run one iteration of the algorithm : Collect experience from the environment and use it to update the agent."""
     # collector_state = agent_state.collector_state
 
     timestep = agent_state.collector_state.timestep
@@ -507,7 +517,7 @@ def training_iteration(
         rewards, entropy = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
-            num_episodes=10,
+            num_episodes=num_episode_test,
             rng=eval_key,
             env_params=env_args.env_params,
             recurrent=recurrent,
@@ -541,8 +551,9 @@ def make_train(
     network_args: NetworkConfig,
     buffer: BufferType,
     agent_args: SACConfig,
-    total_timesteps: int,
     alpha_args: AlphaConfig,
+    total_timesteps: int,
+    num_episode_test: int,
 ):
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
 
@@ -568,10 +579,14 @@ def make_train(
             agent_args=agent_args,
             mode=mode,
             env_args=env_args,
+            num_episode_test=num_episode_test,
         )
 
         agent_state, _ = jax.lax.scan(
-            f=training_iteration_scan_fn, init=agent_state, xs=None, length=num_updates
+            f=training_iteration_scan_fn,
+            init=agent_state,
+            xs=None,
+            length=num_updates,
         )
         return agent_state
 

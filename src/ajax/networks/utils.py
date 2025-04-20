@@ -1,12 +1,14 @@
-from typing import Callable, Optional, Sequence, Union, cast, get_args
+from collections.abc import Sequence
+from typing import Callable, Optional, Union, cast, get_args
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-from ajax.types import ActivationFunction
 from flax.linen.initializers import constant, orthogonal
 from optax import GradientTransformationExtraArgs
+
+from ajax.types import ActivationFunction
 
 
 def get_adam_tx(
@@ -15,8 +17,7 @@ def get_adam_tx(
     eps: float = 1e-5,
     clipped=True,
 ) -> GradientTransformationExtraArgs:
-    """
-    Return an Adam optimizer with optional gradient clipping.
+    """Return an Adam optimizer with optional gradient clipping.
 
     Args:
         learning_rate (Union[float, Callable[[int], float]]): Learning rate for the optimizer.
@@ -26,6 +27,7 @@ def get_adam_tx(
 
     Returns:
         GradientTransformationExtraArgs: The configured optimizer.
+
     """
     if clipped:
         if max_grad_norm is None:
@@ -38,8 +40,7 @@ def get_adam_tx(
 
 
 def parse_activation(activation: Union[str, ActivationFunction]) -> ActivationFunction:  # type: ignore[return]
-    """
-    Parse string representing activation or jax activation function towards\
+    """Parse string representing activation or jax activation function towards\
         jax activation function
     """
     activation_matching = {"relu": nn.relu, "tanh": nn.tanh}
@@ -47,12 +48,13 @@ def parse_activation(activation: Union[str, ActivationFunction]) -> ActivationFu
     match activation:
         case str():
             if activation in activation_matching:
-                return cast(ActivationFunction, activation_matching[activation])
-            else:
-                raise ValueError(
+                return cast("ActivationFunction", activation_matching[activation])
+            raise ValueError(
+                (
                     f"Unrecognized activation name {activation}, acceptable activations"
                     f" names are : {activation_matching.keys()}"
-                )
+                ),
+            )
         case activation if isinstance(activation, get_args(ActivationFunction)):
             return activation
         case _:
@@ -60,12 +62,12 @@ def parse_activation(activation: Union[str, ActivationFunction]) -> ActivationFu
 
 
 def parse_layer(
-    layer: Union[str, ActivationFunction]
+    layer: Union[str, ActivationFunction],
 ) -> Union[nn.Dense, ActivationFunction]:
     """Parse a layer representation into either a Dense or an activation function"""
     if str(layer).isnumeric():
         return nn.Dense(
-            int(cast(str, layer)),
+            int(cast("str", layer)),
             kernel_init=orthogonal(jnp.sqrt(2)),
             bias_init=constant(0.0),
         )
@@ -82,7 +84,11 @@ def parse_architecture(
 def uniform_init(bound: float):
     def _init(key, shape, dtype):
         return jax.random.uniform(
-            key, shape=shape, minval=-bound, maxval=bound, dtype=dtype
+            key,
+            shape=shape,
+            minval=-bound,
+            maxval=bound,
+            dtype=dtype,
         )
 
     return _init

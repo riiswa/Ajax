@@ -3,6 +3,8 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import pytest
+from flax import struct
+
 from ajax.wrappers import (
     ClipAction,
     ClipActionBrax,
@@ -13,7 +15,6 @@ from ajax.wrappers import (
     NormalizeVecReward,
     NormalizeVecRewardBrax,
 )
-from flax import struct
 
 
 class MockGymnaxEnv:
@@ -151,10 +152,9 @@ def test_clip_action(wrapper, env_fixture, low, high, mode, request):
     key = jax.random.PRNGKey(0)
 
     if mode == "gymnax":
-        obs, state = wrapped_env.reset(key, env_params)
+        _, state = wrapped_env.reset(key, env_params)
     else:  # Brax
         state = wrapped_env.reset(key)
-        obs = state.obs
 
     out_of_bound_action = jnp.array(1.0)
     if mode == "gymnax":
@@ -261,10 +261,9 @@ def test_normalize_vec_reward(wrapper, env_fixture, mode, request):
         rewards.append(reward)
 
         if mode == "gymnax" and done:
-            obs, state = wrapped_env.reset(key, env_params)
+            _, state = wrapped_env.reset(key, env_params)
         elif mode == "brax" and state.done:
             state = wrapped_env.reset(key)
-            obs = state.obs
 
     rewards = jnp.stack(rewards)
 

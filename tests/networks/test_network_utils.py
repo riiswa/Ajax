@@ -1,5 +1,6 @@
 import optax
 import pytest
+
 from ajax.networks.utils import get_adam_tx
 
 

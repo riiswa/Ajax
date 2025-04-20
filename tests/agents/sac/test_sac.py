@@ -1,6 +1,5 @@
-import jax
-import jax.numpy as jnp
 import pytest
+
 from ajax.agents.sac.sac import SAC
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import BufferType

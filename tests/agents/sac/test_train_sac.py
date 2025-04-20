@@ -1,9 +1,13 @@
-from typing import Optional
-
 import gymnax
 import jax
 import jax.numpy as jnp
 import pytest
+from brax.envs import create as create_brax_env
+from flax.core import FrozenDict
+from flax.serialization import to_state_dict
+from flax.training.train_state import TrainState
+from jax.tree_util import Partial as partial
+
 from ajax.agents.sac.state import SACConfig, SACState
 from ajax.agents.sac.train_sac import (
     alpha_loss_function,
@@ -28,13 +32,6 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
-from ajax.types import BufferType
-from brax.envs import create as create_brax_env
-from flax.core import FrozenDict
-from flax.core.frozen_dict import FrozenDict
-from flax.serialization import to_state_dict
-from flax.training.train_state import TrainState
-from jax.tree_util import Partial as partial
 
 
 @pytest.fixture
@@ -369,7 +366,6 @@ def test_update_value_functions(env_config, sac_state):
     )
 
     # Mock inputs for the update_value_functions function
-    rng = jax.random.PRNGKey(1)
     observations = jnp.zeros((env_config.num_envs, *observation_shape))
     next_observations = jnp.zeros((env_config.num_envs, *observation_shape))
     actions = jnp.zeros((env_config.num_envs, *action_shape))
@@ -416,7 +412,6 @@ def test_update_policy(env_config, sac_state):
     )
 
     # Mock inputs for the update_policy function
-    rng = jax.random.PRNGKey(1)
     observations = jnp.zeros((env_config.num_envs, *observation_shape))
     dones = jnp.zeros((env_config.num_envs, 1))
 
@@ -450,7 +445,6 @@ def test_update_temperature(env_config, sac_state):
     )
 
     # Mock inputs for the update_temperature function
-    rng = jax.random.PRNGKey(1)
     observations = jnp.zeros((env_config.num_envs, *observation_shape))
     dones = jnp.zeros((env_config.num_envs, 1))
     target_entropy = -1.0
@@ -708,6 +702,7 @@ def test_make_train(env_config):
         agent_args=agent_args,
         total_timesteps=total_timesteps,
         alpha_args=alpha_args,
+        num_episode_test=2,
     )
 
     # Run the train function

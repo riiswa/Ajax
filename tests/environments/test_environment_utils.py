@@ -1,5 +1,7 @@
 import gymnax
 import pytest
+from brax.envs import create as create_brax_env
+
 from ajax.environments.utils import (
     check_env_is_brax,
     check_env_is_gymnax,
@@ -9,8 +11,6 @@ from ajax.environments.utils import (
     get_raw_env,
     get_state_action_shapes,
 )
-from brax.envs import create as create_brax_env
-from gymnax import EnvParams
 
 
 @pytest.mark.parametrize(

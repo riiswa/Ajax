@@ -5,17 +5,17 @@ import distrax
 import flashbax as fbx
 import jax
 import jax.numpy as jnp
+from flax.core import FrozenDict
+from gymnax.environments.environment import Environment, EnvParams, EnvState
+from jax.tree_util import Partial as partial
+
 from ajax.buffers.utils import init_buffer
-from ajax.environments.utils import get_state_action_shapes
 from ajax.state import (
     BaseAgentState,
     CollectorState,
     EnvironmentConfig,
     LoadedTrainState,
 )
-from flax.core import FrozenDict
-from gymnax.environments.environment import Environment, EnvParams, EnvState
-from jax.tree_util import Partial as partial
 
 
 @partial(jax.jit, static_argnames=["mode", "env", "env_params"])
@@ -25,8 +25,7 @@ def reset_env(
     mode: str,
     env_params: Optional[EnvParams] = None,
 ) -> tuple[jax.Array, EnvState]:
-    """
-    Reset the environment and return the initial observation and environment state.
+    """Reset the environment and return the initial observation and environment state.
 
     Args:
         rng (jax.Array): Random number generator key.
@@ -36,6 +35,7 @@ def reset_env(
 
     Returns:
         tuple[jax.Array, EnvState]: Initial observation and environment state.
+
     """
     if mode == "gymnax":
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(rng, env_params)
@@ -46,7 +46,9 @@ def reset_env(
 
 
 @partial(
-    jax.jit, static_argnames=["mode", "env", "env_params"], donate_argnames=["state"]
+    jax.jit,
+    static_argnames=["mode", "env", "env_params"],
+    donate_argnames=["state"],
 )
 def step_env(
     rng: jax.Array,
@@ -56,8 +58,7 @@ def step_env(
     mode: str,
     env_params: Optional[EnvParams] = None,
 ) -> Tuple[jax.Array, EnvState, jax.Array, jax.Array, Any]:
-    """
-    Perform a step in the environment.
+    """Perform a step in the environment.
 
     Args:
         rng (jax.Array): Random number generator key.
@@ -70,10 +71,12 @@ def step_env(
     Returns:
         Tuple[jax.Array, EnvState, jax.Array, jax.Array, Any]:
         Observation, new environment state, reward, done flag, and additional info.
+
     """
     if mode == "gymnax":
         obsv, env_state, reward, done, info = jax.vmap(
-            env.step, in_axes=(0, 0, 0, None)
+            env.step,
+            in_axes=(0, 0, 0, None),
         )(rng, state, action, env_params)
         done = jnp.float_(done)
     else:  # ✅ no vmap for brax
@@ -98,8 +101,7 @@ def get_pi(
     done: Optional[jax.Array] = None,
     recurrent: bool = False,
 ) -> Tuple[distrax.Distribution, LoadedTrainState]:
-    """
-    Get the policy distribution for the given observation and actor state.
+    """Get the policy distribution for the given observation and actor state.
 
     Args:
         actor_state (LoadedTrainState): The actor's train state.
@@ -109,12 +111,16 @@ def get_pi(
 
     Returns:
         Tuple[jax.Array, jax.Array]: Policy distribution and new hidden state (if recurrent).
+
     """
     obs = maybe_add_axis(obs, recurrent)
     done = maybe_add_axis(done, recurrent)
     if recurrent:
         pi, new_actor_hidden_state = actor_state.apply(
-            actor_params, obs, hidden_state=actor_state.hidden_state, done=done
+            actor_params,
+            obs,
+            hidden_state=actor_state.hidden_state,
+            done=done,
         )
     else:
         pi = actor_state.apply(actor_params, obs)
@@ -128,8 +134,7 @@ def get_pi(
     static_argnames=["recurrent"],
 )
 def maybe_add_axis(arr: jax.Array, recurrent: bool) -> jax.Array:
-    """
-    Add an axis to the array if in recurrent mode.
+    """Add an axis to the array if in recurrent mode.
 
     Args:
         arr (jax.Array): Input array.
@@ -137,6 +142,7 @@ def maybe_add_axis(arr: jax.Array, recurrent: bool) -> jax.Array:
 
     Returns:
         jax.Array: Array with an additional axis if recurrent.
+
     """
     return arr[jnp.newaxis, :] if recurrent else arr
 
@@ -155,8 +161,7 @@ def get_action_and_new_agent_state(
     done: Optional[jax.Array] = None,
     recurrent: bool = False,
 ):
-    """
-    Get the action and updated agent state based on the current observation.
+    """Get the action and updated agent state based on the current observation.
 
     Args:
         rng (jax.Array): Random number generator key.
@@ -167,6 +172,7 @@ def get_action_and_new_agent_state(
 
     Returns:
         Tuple[jax.Array, BaseAgentState]: Action and updated agent state.
+
     """
     if recurrent:
         chex.assert_tree_no_nones(done)
@@ -203,8 +209,7 @@ def collect_experience(
     buffer: fbx.flat_buffer.TrajectoryBuffer,
     uniform: bool = False,
 ):
-    """
-    Collect experience by interacting with the environment.
+    """Collect experience by interacting with the environment.
 
     Args:
         agent_state (BaseAgentState): Current agent state.
@@ -216,6 +221,7 @@ def collect_experience(
 
     Returns:
         Tuple[BaseAgentState, None]: Updated agent state and None.
+
     """
     rng, uniform_key = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
@@ -226,7 +232,10 @@ def collect_experience(
         recurrent=recurrent,
     )
     uniform_action = jax.random.uniform(
-        uniform_key, shape=action.shape, minval=-1.0, maxval=1.0
+        uniform_key,
+        shape=action.shape,
+        minval=-1.0,
+        maxval=1.0,
     )
 
     # Use jax.lax.cond to choose between uniform sampling and policy sampling
@@ -260,8 +269,6 @@ def collect_experience(
             "next_obs": obsv,
         },
     )
-
-    timestep = agent_state.collector_state.timestep
 
     new_collector_state = agent_state.collector_state.replace(
         rng=rng,
