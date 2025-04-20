@@ -137,7 +137,7 @@ if __name__ == "__main__":
     )
 
     start_time = time.time()  # Start timing
-    sac_agent.train(seed=42, num_timesteps=int(1e5))
+    sac_agent.train(seed=42, num_timesteps=int(1e6))
     end_time = time.time()  # End timing
 
     print(

@@ -467,7 +467,7 @@ def training_iteration(
         lambda _: False,
         operand=None,
     )
-    jax.debug.print("{x}", x=uniform)
+
     collect_scan_fn = partial(
         collect_experience,
         recurrent=recurrent,
