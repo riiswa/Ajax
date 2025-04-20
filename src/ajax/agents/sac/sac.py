@@ -1,5 +1,7 @@
+import time  # Add import for measuring execution time
 from typing import Optional, Sequence
 
+import chex
 import jax
 import jax.numpy as jnp
 from ajax.agents.sac.state import SACConfig
@@ -41,13 +43,21 @@ class SAC:
         # render_env_id: Optional[str] = None,
         buffer_size: int = int(1e6),
         batch_size: int = 256,
-        learning_starts: int = 100,
+        learning_starts: int = int(1e4),
         tau: float = 0.005,
+        reward_scale: float = 5.0,
         # num_episode_test: int = 2,  # FIXME : really useful?
         alpha_init: float = 1.0,  # FIXME: check value
         target_entropy_per_dim: float = -1.0,
     ) -> None:
-        env, env_params, env_id, continuous = prepare_env(env_id, env_params=env_params)
+        env, env_params, env_id, continuous = prepare_env(
+            env_id,
+            env_params=env_params,
+            normalize_obs=False,
+            normalize_reward=False,
+            num_envs=num_envs,
+            gamma=gamma,
+        )
 
         if not check_if_environment_has_continuous_actions(env):
             raise ValueError("SAC only supports continuous action spaces.")
@@ -74,6 +84,7 @@ class SAC:
         self.optimizer_args = OptimizerConfig(
             learning_rate=learning_rate,
             max_grad_norm=max_grad_norm,
+            clipped=max_grad_norm is not None,
         )
         action_dim = get_action_dim(env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
@@ -82,6 +93,7 @@ class SAC:
             tau=tau,
             learning_starts=learning_starts,
             target_entropy=target_entropy,
+            reward_scale=reward_scale,
         )
 
         self.buffer = get_buffer(
@@ -115,8 +127,19 @@ class SAC:
         seed = jnp.array(seed)
         agent_state = jax.vmap(set_key_and_train, in_axes=0)(seed)
 
+        # jax.profiler.save_device_memory_profile("memory.prof")
+
 
 if __name__ == "__main__":
     env_id = "halfcheetah"
-    sac_agent = SAC(env_id=env_id, learning_starts=100)
+    sac_agent = SAC(
+        env_id=env_id, learning_starts=int(1e4), reward_scale=1.0, max_grad_norm=None
+    )
+
+    start_time = time.time()  # Start timing
     sac_agent.train(seed=42, num_timesteps=int(1e5))
+    end_time = time.time()  # End timing
+
+    print(
+        f"Training completed in {end_time - start_time:.2f} seconds."
+    )  # Print execution time

@@ -65,6 +65,7 @@ def init_sac(
         network_config=network_args,
         continuous=True,
         action_value=True,
+        squash=True,
         num_critics=2,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
@@ -118,13 +119,13 @@ def value_loss_function(
     q_preds = predict_value(
         critic_state=critic_states,
         critic_params=critic_params,
-        x=jnp.hstack([observations, actions]),
+        x=jnp.concatenate([observations, actions], axis=-1),
     )
     # Target Q-values using target networks
     q_targets = predict_value(
         critic_state=critic_states,
         critic_params=critic_states.target_params,
-        x=jnp.hstack([next_observations, next_actions]),
+        x=jnp.concatenate([next_observations, next_actions], axis=-1),
     )
 
     # Unpack and unsqueeze if needed
@@ -133,10 +134,16 @@ def value_loss_function(
 
     # Bellman target and losses
     min_q_target = jnp.minimum(q1_target, q2_target)
-
+    log_probs = log_probs.sum(-1, keepdims=True)
     target_q = jax.lax.stop_gradient(
         rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs)
     )
+
+    assert (
+        target_q.shape[1:] == q_preds.shape[1:]
+    ), f"{target_q.shape} != {q_preds.shape}"
+
+    # total_loss = jnp.square(q_preds - target_q[None, ...]).mean()
 
     loss_q1 = jnp.mean((q1_pred - target_q) ** 2)
     loss_q2 = jnp.mean((q2_pred - target_q) ** 2)
@@ -144,11 +151,11 @@ def value_loss_function(
 
     aux = dict(
         critic_loss=total_loss,
-        q1_loss=loss_q1,
-        q2_loss=loss_q2,
-        q1_pred=q1_pred,
-        q2_pred=q2_pred,
-        target_q=target_q,
+        # q1_loss=loss_q1,
+        # q2_loss=loss_q2,
+        q1_pred=q1_pred.mean(),
+        q2_pred=q2_pred.mean(),
+        target_q=target_q.mean(),
         log_probs=log_probs,
     )
 
@@ -188,7 +195,11 @@ def policy_loss_function(
 
     # Unpack and unsqueeze if needed
     q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
-    q_min = jnp.minimum(q1_pred, q2_pred)
+    q_min = jnp.minimum(q1_pred, q2_pred).squeeze(0)
+
+    log_probs = log_probs.sum(-1, keepdims=True)
+
+    assert log_probs.shape == q_min.shape, f"{log_probs.shape} != {q_min.shape}"
     loss = (alpha * log_probs - q_min).mean()
 
     return loss, {
@@ -210,7 +221,7 @@ def alpha_loss_function(
     log_alpha = log_alpha_params["log_alpha"]
     alpha = jnp.exp(log_alpha)
 
-    loss = (alpha * (-corrected_log_probs - target_entropy)).mean()
+    loss = (alpha * jax.lax.stop_gradient(-corrected_log_probs - target_entropy)).mean()
 
     return loss, {
         "alpha_loss": loss,
@@ -219,13 +230,16 @@ def alpha_loss_function(
     }
 
 
-@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale"])
+@partial(
+    jax.jit,
+    static_argnames=["recurrent", "gamma", "reward_scale"],
+)
 def update_value_functions(
+    agent_state: SACState,
     observations: jax.Array,
     actions: jax.Array,
     next_observations: jax.Array,
     dones: Optional[jax.Array],
-    agent_state: SACState,
     recurrent: bool,
     rewards: jax.Array,
     gamma: float,
@@ -254,32 +268,29 @@ def update_value_functions(
     )
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
-
-    return (
-        SACState(
-            rng=rng,
-            actor_state=agent_state.actor_state,
-            critic_state=updated_critic_state,
-            alpha=agent_state.alpha,
-            collector_state=agent_state.collector_state,
-        ),
-        aux,
+    agent_state = agent_state.replace(
+        rng=rng,
+        critic_state=updated_critic_state,
     )
+    return agent_state, aux
 
 
-@partial(jax.jit, static_argnames=["recurrent"])
+@partial(
+    jax.jit,
+    static_argnames=["recurrent"],
+)
 def update_policy(
+    agent_state: SACState,
     observations: jax.Array,
     done: Optional[jax.Array],
-    agent_state: SACState,
     recurrent: bool,
 ) -> Tuple[SACState, Dict[str, Any]]:
     rng, policy_key = jax.random.split(agent_state.rng)
     value_and_grad_fn = jax.value_and_grad(policy_loss_function, has_aux=True)
     log_alpha = agent_state.alpha.params["log_alpha"]
     alpha = jnp.exp(log_alpha)
-    alpha_min = 0.1
-    alpha = jnp.maximum(jnp.exp(log_alpha), alpha_min)
+    # alpha_min = 0.1
+    # alpha = jnp.maximum(jnp.exp(log_alpha), alpha_min)
     (loss, aux), grads = value_and_grad_fn(
         agent_state.actor_state.params,
         agent_state.actor_state,
@@ -292,17 +303,11 @@ def update_policy(
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
-
-    return (
-        SACState(
-            rng=rng,
-            actor_state=updated_actor_state,
-            critic_state=agent_state.critic_state,
-            alpha=agent_state.alpha,
-            collector_state=agent_state.collector_state,
-        ),
-        aux,
+    agent_state = agent_state.replace(
+        rng=rng,
+        actor_state=updated_actor_state,
     )
+    return agent_state, aux
 
 
 @partial(
@@ -330,22 +335,16 @@ def update_temperature(
 
     (loss, aux), grads = loss_fn(
         agent_state.alpha.params,
-        log_probs,
+        log_probs.sum(-1),
         target_entropy,
     )
 
     new_alpha_state = agent_state.alpha.apply_gradients(grads=grads)
-
-    return (
-        SACState(
-            rng=rng,
-            actor_state=agent_state.actor_state,
-            critic_state=agent_state.critic_state,
-            alpha=new_alpha_state,
-            collector_state=agent_state.collector_state,
-        ),
-        aux,
+    agent_state = agent_state.replace(
+        rng=rng,
+        alpha=new_alpha_state,
     )
+    return agent_state, aux
 
 
 @partial(
@@ -357,13 +356,8 @@ def update_target_networks(
     tau: float,
 ) -> SACState:
     new_critic_state = agent_state.critic_state.soft_update(tau=tau)
-
-    return SACState(
-        rng=agent_state.rng,
-        actor_state=agent_state.actor_state,
+    return agent_state.replace(
         critic_state=new_critic_state,
-        alpha=agent_state.alpha,
-        collector_state=agent_state.collector_state,
     )
 
 
@@ -379,8 +373,9 @@ def update_agent(
     gamma: float,
     action_dim: int,
     tau: float,
-    num_critic_updates: int = 2,
-    target_update_frequency: int = 2,
+    num_critic_updates: int = 1,
+    target_update_frequency: int = 1,
+    reward_scale: float = 5.0,
 ) -> Tuple[SACState, None]:
     # Sample buffer
 
@@ -391,6 +386,10 @@ def update_agent(
     agent_state = agent_state.replace(rng=rng)
 
     # Update Q functions
+    @partial(
+        jax.jit,
+        donate_argnames=["carry"],
+    )
     def critic_update_step(carry, _):
         agent_state = carry
         agent_state, aux_value = update_value_functions(
@@ -402,6 +401,7 @@ def update_agent(
             recurrent=recurrent,
             rewards=rewards,
             gamma=gamma,
+            reward_scale=reward_scale,
         )
 
         return agent_state, aux_value
@@ -438,9 +438,10 @@ def update_agent(
     return agent_state, None
 
 
+@jax.named_call
 @partial(
     jax.jit,
-    static_argnames=["env_args", "mode", "recurrent", "buffer"],
+    static_argnames=["env_args", "mode", "recurrent", "buffer", "log_frequency"],
 )
 def training_iteration(
     agent_state: SACState,
@@ -452,21 +453,30 @@ def training_iteration(
     agent_args: SACConfig,
     action_dim: int,
     lstm_hidden_size: Optional[int] = None,
-    log_frequency: int = 1000,
+    log_frequency: int = 5000,
 ):
     """
     Run one iteration of the algorithm : Collect experience from the environment and use it to update the agent.
     """
     # collector_state = agent_state.collector_state
+
+    timestep = agent_state.collector_state.timestep
+    uniform = jax.lax.cond(
+        timestep < agent_args.learning_starts,
+        lambda _: True,
+        lambda _: False,
+        operand=None,
+    )
+    jax.debug.print("{x}", x=uniform)
     collect_scan_fn = partial(
         collect_experience,
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
         buffer=buffer,
+        uniform=uniform,
     )
     agent_state, _ = jax.lax.scan(collect_scan_fn, agent_state, xs=None, length=1)
-
     timestep = agent_state.collector_state.timestep
 
     def do_update(agent_state):
@@ -477,6 +487,7 @@ def training_iteration(
             gamma=agent_args.gamma,
             action_dim=action_dim,
             tau=agent_args.tau,
+            reward_scale=agent_args.reward_scale,
         )
         agent_state, _ = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=1)
         return agent_state
@@ -496,26 +507,18 @@ def training_iteration(
         rewards, entropy = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
-            num_episodes=4,
+            num_episodes=10,
             rng=eval_key,
             env_params=env_args.env_params,
             recurrent=recurrent,
             lstm_hidden_size=lstm_hidden_size,
-            squash=True,
         )
 
-        # jax.debug.callback can be used to log during JIT
-        def log_fn(val):
-            timestep_val, rewards_val, entropy_val = val
-            print(
-                f"[Eval] Step={timestep_val}, Reward={rewards_val},"
-                f" Entropy={entropy_val}"
-            )
-
-        jax.debug.callback(log_fn, (timestep, rewards, entropy))
-
         jax.debug.print(
-            "[Alpha] {alpha}", alpha=jnp.exp(agent_state.alpha.params["log_alpha"])
+            "[Eval] Step={timestep_val}, Reward={rewards_val}, Entropy={entropy_val}",
+            timestep_val=timestep,
+            rewards_val=rewards,
+            entropy_val=entropy,
         )
 
         return agent_state.replace(rng=rng)
@@ -543,9 +546,7 @@ def make_train(
 ):
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
 
-    @partial(
-        jax.jit,
-    )
+    @partial(jax.jit)
     def train(key):
         agent_state = init_sac(
             key=key,

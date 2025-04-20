@@ -75,7 +75,8 @@ class Actor(nn.Module):
         embedding = self.encoder(obs)
         if self.continuous:
             mean = self.mean(embedding)
-            log_std = jnp.clip(self.log_std(embedding), -5, 2)
+            # log_std = jnp.clip(self.log_std(embedding), -5, 2)
+            log_std = self.log_std(embedding)
             std = jnp.exp(log_std)
             return (
                 distrax.Normal(mean, std)
@@ -124,6 +125,7 @@ def get_initialized_actor_critic(
     network_config: NetworkConfig,
     continuous: bool = False,
     action_value: bool = False,
+    squash: bool = False,
     num_critics: int = 1,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """Create actor and critic adapted to the environment and following the\
@@ -133,6 +135,7 @@ def get_initialized_actor_critic(
         input_architecture=network_config.actor_architecture,
         action_dim=action_dim,
         continuous=continuous,
+        squash=squash,
     )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,

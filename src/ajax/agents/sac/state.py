@@ -21,3 +21,4 @@ class SACConfig(BaseAgentConfig):
     target_entropy: float
     tau: float = 0.005
     learning_starts: int = 100
+    reward_scale: float = 5.0

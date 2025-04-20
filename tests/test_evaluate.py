@@ -81,11 +81,10 @@ def test_evaluate_with_fast_env(env_config, sac_state):
         env_params=env_config.env_params,
         recurrent=False,
         lstm_hidden_size=None,
-        squash=False,
     )
 
     # Assertions
-    assert rewards.shape == (num_episodes,)
+    assert rewards.shape == ()
     assert avg_entropy.shape == ()
 
 
@@ -101,9 +100,8 @@ def test_evaluate_with_gymnax_env(env_config, sac_state):
         env_params=env_config.env_params,
         recurrent=False,
         lstm_hidden_size=128,
-        squash=True,
     )
 
     # Assertions
-    assert rewards.shape == (num_episodes,)
+    assert rewards.shape == ()
     assert avg_entropy.shape == ()

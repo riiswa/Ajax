@@ -29,7 +29,7 @@ def prepare_env(
     episode_length: Optional[int] = None,
     env_params: Optional[EnvParams] = None,
     num_envs: int = 1,
-    normalize_obs: bool = True,
+    normalize_obs: bool = False,
     normalize_reward: bool = False,
     gamma: Optional[float] = None,  # Discount factor for reward normalization
 ) -> Tuple[EnvType, Optional[EnvParams], Union[str, EnvType], bool]:
@@ -41,7 +41,6 @@ def prepare_env(
         )
     else:
         env = env_id  # Assume prebuilt env
-
     continuous = check_if_environment_has_continuous_actions(env)
 
     mode = get_env_type(env)

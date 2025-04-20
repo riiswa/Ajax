@@ -16,7 +16,6 @@ def evaluate(
     env_params: Optional[EnvParams],
     recurrent: bool = False,
     lstm_hidden_size: Optional[int] = None,
-    squash: bool = False,
 ) -> jax.Array:
     key = rng
 
@@ -30,9 +29,8 @@ def evaluate(
         jax.random.split(reset_key, num_episodes) if mode == "gymnax" else reset_key
     )
 
-    def get_action_and_entropy(
+    def get_deterministic_action_and_entropy(
         obs: jax.Array,
-        key: jax.Array,
         done: Optional[bool] = None,
     ) -> tuple[jax.Array, jax.Array]:
         if actor_state is None:
@@ -44,7 +42,7 @@ def evaluate(
             done,
             recurrent,
         )
-        action = pi.sample(seed=key)
+        action = pi.mean()
 
         return action, pi.entropy()
 
@@ -58,12 +56,12 @@ def evaluate(
 
     def sample_action_and_step_env(carry):
         rewards, rng, obs, done, state, entropy_sum, step_count = carry
-        rng, action_key, step_key = jax.random.split(rng, num=3)
+        rng, step_key = jax.random.split(rng)
         step_keys = (
             jax.random.split(step_key, num_episodes) if mode == "gymnax" else step_key
         )
-        actions, entropy = get_action_and_entropy(
-            obs, action_key, done if recurrent else None
+        actions, entropy = get_deterministic_action_and_entropy(
+            obs, done if recurrent else None
         )
         obs, state, new_rewards, new_done, _ = step_env(
             step_keys,
@@ -91,4 +89,4 @@ def evaluate(
 
     avg_entropy = entropy_sum / jnp.maximum(step_count, 1.0)  # avoid divide by zero
 
-    return rewards, avg_entropy.mean(axis=-1)
+    return rewards.mean(axis=-1), avg_entropy.mean(axis=-1)

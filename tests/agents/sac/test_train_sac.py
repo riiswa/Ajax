@@ -156,8 +156,6 @@ def test_value_loss_function(env_config, sac_state):
     # Validate the outputs
     assert jnp.isfinite(loss), "Loss contains invalid values."
     assert "critic_loss" in aux, "Auxiliary outputs are missing 'critic_loss'."
-    assert "q1_loss" in aux, "Auxiliary outputs are missing 'q1_loss'."
-    assert "q2_loss" in aux, "Auxiliary outputs are missing 'q2_loss'."
     assert aux["critic_loss"] >= 0, "Critic loss should be non-negative."
 
 

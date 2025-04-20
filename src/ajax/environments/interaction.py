@@ -6,6 +6,7 @@ import flashbax as fbx
 import jax
 import jax.numpy as jnp
 from ajax.buffers.utils import init_buffer
+from ajax.environments.utils import get_state_action_shapes
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -188,7 +189,11 @@ def get_action_and_new_agent_state(
     )
 
 
-@partial(jax.jit, static_argnames=["recurrent", "mode", "env_args", "buffer"])
+@partial(
+    jax.jit,
+    static_argnames=["recurrent", "mode", "env_args", "buffer"],
+    donate_argnames=["agent_state"],
+)
 def collect_experience(
     agent_state: BaseAgentState,
     _: Any,
@@ -196,6 +201,7 @@ def collect_experience(
     mode: str,
     env_args: EnvironmentConfig,
     buffer: fbx.flat_buffer.TrajectoryBuffer,
+    uniform: bool = False,
 ):
     """
     Collect experience by interacting with the environment.
@@ -211,11 +217,23 @@ def collect_experience(
     Returns:
         Tuple[BaseAgentState, None]: Updated agent state and None.
     """
+    rng, uniform_key = jax.random.split(agent_state.rng)
+    agent_state = agent_state.replace(rng=rng)
     action, agent_state = get_action_and_new_agent_state(
         agent_state,
         agent_state.collector_state.last_obs,
         agent_state.collector_state.last_done,
         recurrent=recurrent,
+    )
+    uniform_action = jax.random.uniform(
+        uniform_key, shape=action.shape, minval=-1.0, maxval=1.0
+    )
+
+    # Use jax.lax.cond to choose between uniform sampling and policy sampling
+    action = jax.lax.cond(
+        uniform,
+        lambda: uniform_action,
+        lambda: action,
     )
 
     rng, step_key = jax.random.split(agent_state.rng)
@@ -242,6 +260,9 @@ def collect_experience(
             "next_obs": obsv,
         },
     )
+
+    timestep = agent_state.collector_state.timestep
+
     new_collector_state = agent_state.collector_state.replace(
         rng=rng,
         env_state=env_state,
