@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "Ajax"
 version = "0.2.0"
-description = "RL agents in jax"
+description = "Agents in JAX: Jax based implementations of RL algorithms"
 authors = ["Yann Berthelot <yannberthelot1@gmail.com>"]
 readme = "README.md"
 
@@ -13,7 +13,6 @@ tqdm = "^4.65.0"
 gymnax = {git = "https://github.com/YannBerthelot/gymnax.git"}
 appdirs = "1.4.3"
 pydantic = "^2.0.2"
-wandb = "^0.15.8"
 pandas = "^2.1.1"
 matplotlib = "^3.8.0"
 jaxlib = "0.4.25"
@@ -23,6 +22,9 @@ flax = ">=0.8"
 scipy = "<1.13"
 probing-environments = {git = "https://github.com/YannBerthelot/ProbingEnvironments.git"}
 flashbax = "^0.1.3"
+brax = "^0.10.3"
+mujoco = "^3.1.4"
+mujoco-mjx = "^3.1.4"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -42,17 +44,13 @@ ruff = "^0.11.6"
 moviepy = "^1.0.3"
 imageio = {extras = ["ffmpeg"], version = "^2.37.0"}
 
-
-[tool.poetry.group.mujoco.dependencies]
-brax = "^0.10.3"
-mujoco = "^3.1.4"
-mujoco-mjx = "^3.1.4"
-
-
 [tool.poetry.group.profiling.dependencies]
 tensorflow = "^2.19.0"
 tensorboard = "^2.19.0"
 tensorboard-plugin-profile = "^2.19.4"
+
+[tool.poetry.group.wandb.dependencies]
+wandb = "^0.19.9"
 
 [[tool.poetry.source]]
 name = "pypi"
