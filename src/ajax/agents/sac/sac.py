@@ -202,7 +202,7 @@ class SAC:
             agent_state = train_jit(key, index)
             return agent_state
 
-        index = jnp.arange(len(seed))  # ignore[assignment]
+        index = jnp.arange(len(seed))
         seed = jnp.array(seed)
         jax.vmap(set_key_and_train, in_axes=0)(seed, index)
 

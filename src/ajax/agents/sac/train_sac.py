@@ -4,7 +4,6 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-import wandb
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
@@ -19,7 +18,7 @@ from ajax.environments.interaction import (
 )
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.evaluate import evaluate
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging.wandb_logging import LoggingConfig, vmap_log
 from ajax.networks.networks import (
     get_adam_tx,
     get_initialized_actor_critic,
@@ -615,7 +614,7 @@ def training_iteration(
     lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 5000,
     num_episode_test: int = 10,
-    test_fn: Optional[Callable] = None,
+    log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
     log: bool = True,
     verbose: bool = False,
@@ -699,10 +698,9 @@ def training_iteration(
             "timestep": timestep,
             "Eval/episodic mean reward": eval_rewards,
             "Eval/episodic entropy": eval_entropy,
-            "index": index,
         }
         if log:
-            jax.debug.callback(test_fn, metrics_to_log)
+            jax.debug.callback(log_fn, metrics_to_log, index)
         # jax.debug.callback(log_variables, metrics_to_log)
         if verbose:
             jax.debug.print(
@@ -743,33 +741,6 @@ def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[s
     return value
 
 
-def test_log_to_run(log_metrics, run_ids, logging_config):
-    index = log_metrics["index"]
-    run_id = run_ids[index]
-    run = wandb.init(
-        project=logging_config.project_name,
-        name=f"{logging_config.run_name}  {index}",
-        id=run_id,
-        resume="must",
-        reinit=True,
-    )
-    run.log(log_metrics)
-
-
-# @partial(
-#     jax.jit,
-#     static_argnames=[
-#         "env_args",
-#         "optimizer_args",
-#         "network_args",
-#         "buffer",
-#         "agent_args",
-#         "alpha_args",
-#         "total_timesteps",
-#         "num_episode_test",
-#         "runs",
-#     ],
-# )
 def make_train(
     env_args: EnvironmentConfig,
     optimizer_args: OptimizerConfig,
@@ -799,7 +770,7 @@ def make_train(
         Callable: JIT-compiled training function.
     """
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    test_fn = partial(test_log_to_run, run_ids=run_ids, logging_config=logging_config)
+    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
     log = logging_config is not None
 
     @partial(jax.jit)
@@ -825,7 +796,7 @@ def make_train(
             mode=mode,
             env_args=env_args,
             num_episode_test=num_episode_test,
-            test_fn=test_fn,
+            log_fn=log_fn,
             index=index,
             log=log,
         )

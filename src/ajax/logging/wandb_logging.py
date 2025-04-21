@@ -1,7 +1,7 @@
 """Helpers for weights&biases logging"""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple
 
 import wandb
 
@@ -44,3 +44,23 @@ def log_variables(variables_to_log: dict, commit: bool = True):
 def finish_logging():
     """Terminate the wandb run to start a new one"""
     wandb.finish()
+
+
+def vmap_log(
+    log_metrics: Dict[str, Any],
+    index: int,
+    run_ids: Tuple[int],
+    logging_config: LoggingConfig,
+):
+    """
+    Log metrics in a vmap fashion, allowing to log multiple runs in parallel.
+    """
+    run_id = run_ids[index]
+    run = wandb.init(
+        project=logging_config.project_name,
+        name=f"{logging_config.run_name}  {index}",
+        id=run_id,
+        resume="must",
+        reinit=True,
+    )
+    run.log(log_metrics)

@@ -24,9 +24,6 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 | Weights & Biases (wandb) Integration  | :soon:            |
 | Documentation                         | :soon:            |
 
-**Legend**:  
-- :heavy_check_mark: Available  
-- :soon: Coming soon  
 
 ---
 
@@ -94,7 +91,7 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 To train an agent using AJAX, run the following command:
 ```python
 env_id = "halfcheetah"
-    sac_agent = SAC(
+sac_agent = SAC(
         env_id=env_id,
     )
 sac_agent.train(seed=42, num_timesteps=int(1e6))
