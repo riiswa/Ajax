@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "Ajax"
-version = "0.2.0"
+version = "0.3.0"
 description = "Agents in JAX: Jax based implementations of RL algorithms"
 authors = ["Yann Berthelot <yannberthelot1@gmail.com>"]
 readme = "README.md"
