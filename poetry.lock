@@ -1002,7 +1002,7 @@ jax = ">=0.4.19"
 msgpack = "*"
 numpy = [
     {version = ">=1.23.2", markers = "python_version >= \"3.11\""},
-    {version = ">=1.22"},
+    {version = ">=1.22", markers = "python_version < \"3.11\""},
 ]
 optax = "*"
 orbax-checkpoint = "*"
@@ -1936,7 +1936,7 @@ files = [
 ml-dtypes = ">=0.2.0"
 numpy = [
     {version = ">=1.23.2", markers = "python_version >= \"3.11\""},
-    {version = ">=1.22", markers = "python_version < \"3.11\""},
+    {version = ">=1.22"},
 ]
 opt-einsum = "*"
 scipy = ">=1.9"
