@@ -1,4 +1,3 @@
-import time  # Add import for measuring execution time
 from collections.abc import Sequence
 from typing import Optional
 
@@ -19,11 +18,10 @@ from ajax.types import EnvType
 
 
 class SAC:
-    """SAC Agent that allows simple training and testing"""
+    """Soft Actor-Critic (SAC) agent for training and testing in continuous action spaces."""
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
-        # total_timesteps: int,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
         num_envs: int = 1,
         learning_rate: float = 3e-4,
@@ -31,25 +29,37 @@ class SAC:
         critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = 0.5,
-        # save: bool = False,
-        # save_folder: str = "./models",
-        # log_video: bool = False,
-        # log_video_frequency: Optional[int] = None,
-        # save_frequency: Optional[int] = None,
-        lstm_hidden_size: Optional[int] = None,
-        # average_reward: bool = False,
-        # window_size: int = 32,
-        # episode_length: Optional[int] = None,
-        # render_env_id: Optional[str] = None,
+        max_grad_norm: Optional[float] = None,
         buffer_size: int = int(1e6),
         batch_size: int = 256,
         learning_starts: int = int(1e4),
         tau: float = 0.005,
-        reward_scale: float = 5.0,
+        reward_scale: float = 1.0,
         alpha_init: float = 1.0,  # FIXME: check value
         target_entropy_per_dim: float = -1.0,
+        lstm_hidden_size: Optional[int] = None,
     ) -> None:
+        """
+        Initialize the SAC agent.
+
+        Args:
+            env_id (str | EnvType): Environment ID or environment instance.
+            num_envs (int): Number of parallel environments.
+            learning_rate (float): Learning rate for optimizers.
+            actor_architecture (tuple): Architecture of the actor network.
+            critic_architecture (tuple): Architecture of the critic network.
+            gamma (float): Discount factor for rewards.
+            env_params (Optional[EnvParams]): Parameters for the environment.
+            max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
+            buffer_size (int): Size of the replay buffer.
+            batch_size (int): Batch size for training.
+            learning_starts (int): Timesteps before training starts.
+            tau (float): Soft update coefficient for target networks.
+            reward_scale (float): Scaling factor for rewards.
+            alpha_init (float): Initial value for the temperature parameter.
+            target_entropy_per_dim (float): Target entropy per action dimension.
+            lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
+        """
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
@@ -108,7 +118,14 @@ class SAC:
         num_timesteps: int = int(1e6),
         num_episode_test: int = 10,
     ) -> None:
-        """Train the agent"""
+        """
+        Train the SAC agent.
+
+        Args:
+            seed (int | Sequence[int]): Random seed(s) for training.
+            num_timesteps (int): Total number of timesteps for training.
+            num_episode_test (int): Number of episodes for evaluation during training.
+        """
         if isinstance(seed, int):
             seed = [seed]
 
@@ -139,10 +156,8 @@ if __name__ == "__main__":
     env_id = "halfcheetah"
     sac_agent = SAC(
         env_id=env_id,
-        learning_starts=int(1e4),
-        reward_scale=1.0,
-        max_grad_norm=None,
     )
+    import time
 
     start_time = time.time()  # Start timing
     sac_agent.train(seed=42, num_timesteps=int(1e6))

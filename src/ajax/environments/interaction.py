@@ -25,17 +25,17 @@ def reset_env(
     mode: str,
     env_params: Optional[EnvParams] = None,
 ) -> tuple[jax.Array, EnvState]:
-    """Reset the environment and return the initial observation and environment state.
+    """
+    Reset the environment and return the initial observation and state.
 
     Args:
         rng (jax.Array): Random number generator key.
-        env (Environment): The environment to reset.
-        mode (str): The mode of the environment ("gymnax" or "brax").
-        env_params (Optional[EnvParams]): Parameters for the environment (only for Gymnax).
+        env (Environment): Environment to reset.
+        mode (str): Environment mode ("gymnax" or "brax").
+        env_params (Optional[EnvParams]): Parameters for Gymnax environments.
 
     Returns:
         tuple[jax.Array, EnvState]: Initial observation and environment state.
-
     """
     if mode == "gymnax":
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(rng, env_params)
@@ -58,20 +58,19 @@ def step_env(
     mode: str,
     env_params: Optional[EnvParams] = None,
 ) -> Tuple[jax.Array, EnvState, jax.Array, jax.Array, Any]:
-    """Perform a step in the environment.
+    """
+    Perform a step in the environment.
 
     Args:
         rng (jax.Array): Random number generator key.
         state (jax.Array): Current environment state.
         action (jax.Array): Action to take.
-        env (Environment): The environment to step in.
-        mode (str): The mode of the environment ("gymnax" or "brax").
-        env_params (Optional[EnvParams]): Parameters for the environment (only for Gymnax).
+        env (Environment): Environment to step in.
+        mode (str): Environment mode ("gymnax" or "brax").
+        env_params (Optional[EnvParams]): Parameters for Gymnax environments.
 
     Returns:
-        Tuple[jax.Array, EnvState, jax.Array, jax.Array, Any]:
-        Observation, new environment state, reward, done flag, and additional info.
-
+        Tuple[jax.Array, EnvState, jax.Array, jax.Array, Any]: Observation, new state, reward, done flag, and info.
     """
     if mode == "gymnax":
         obsv, env_state, reward, done, info = jax.vmap(
@@ -101,17 +100,18 @@ def get_pi(
     done: Optional[jax.Array] = None,
     recurrent: bool = False,
 ) -> Tuple[distrax.Distribution, LoadedTrainState]:
-    """Get the policy distribution for the given observation and actor state.
+    """
+    Get the policy distribution for the given observation and actor state.
 
     Args:
-        actor_state (LoadedTrainState): The actor's train state.
-        obs (jax.Array): The current observation.
+        actor_state (LoadedTrainState): Actor's train state.
+        actor_params (FrozenDict): Parameters of the actor.
+        obs (jax.Array): Current observation.
         done (Optional[jax.Array]): Done flags for recurrent mode.
         recurrent (bool): Whether the actor is recurrent.
 
     Returns:
-        Tuple[jax.Array, jax.Array]: Policy distribution and new hidden state (if recurrent).
-
+        Tuple[distrax.Distribution, LoadedTrainState]: Policy distribution and updated actor state.
     """
     obs = maybe_add_axis(obs, recurrent)
     done = maybe_add_axis(done, recurrent)
@@ -134,7 +134,8 @@ def get_pi(
     static_argnames=["recurrent"],
 )
 def maybe_add_axis(arr: jax.Array, recurrent: bool) -> jax.Array:
-    """Add an axis to the array if in recurrent mode.
+    """
+    Add an axis to the array if in recurrent mode.
 
     Args:
         arr (jax.Array): Input array.
@@ -142,7 +143,6 @@ def maybe_add_axis(arr: jax.Array, recurrent: bool) -> jax.Array:
 
     Returns:
         jax.Array: Array with an additional axis if recurrent.
-
     """
     return arr[jnp.newaxis, :] if recurrent else arr
 

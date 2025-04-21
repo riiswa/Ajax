@@ -35,6 +35,16 @@ def create_alpha_train_state(
     learning_rate: float = 3e-4,
     alpha_init: float = 1.0,
 ) -> TrainState:
+    """
+    Initialize the train state for the temperature parameter (alpha).
+
+    Args:
+        learning_rate (float): Learning rate for alpha optimizer.
+        alpha_init (float): Initial value for alpha.
+
+    Returns:
+        TrainState: Initialized train state for alpha.
+    """
     log_alpha = jnp.log(alpha_init)
     params = FrozenDict({"log_alpha": log_alpha})
     tx = get_adam_tx(learning_rate)
@@ -53,6 +63,20 @@ def init_sac(
     alpha_args: AlphaConfig,
     buffer: BufferType,
 ) -> SACState:
+    """
+    Initialize the SAC agent's state, including actor, critic, alpha, and collector states.
+
+    Args:
+        key (jax.Array): Random number generator key.
+        env_args (EnvironmentConfig): Environment configuration.
+        optimizer_args (OptimizerConfig): Optimizer configuration.
+        network_args (NetworkConfig): Network configuration.
+        alpha_args (AlphaConfig): Alpha configuration.
+        buffer (BufferType): Replay buffer.
+
+    Returns:
+        SACState: Initialized SAC agent state.
+    """
     (
         rng,
         init_key,
@@ -104,6 +128,27 @@ def value_loss_function(
     recurrent: bool,
     reward_scale: float = 5.0,  # Add reward scaling factor here
 ) -> Tuple[jax.Array, Dict[str, jax.Array]]:
+    """
+    Compute the value loss for the critic networks.
+
+    Args:
+        critic_params (FrozenDict): Parameters of the critic networks.
+        critic_states (LoadedTrainState): Critic train states.
+        rng (jax.Array): Random number generator key.
+        actor_state (LoadedTrainState): Actor train state.
+        actions (jax.Array): Actions taken.
+        observations (jax.Array): Current observations.
+        next_observations (jax.Array): Next observations.
+        dones (jax.Array): Done flags.
+        rewards (jax.Array): Rewards received.
+        gamma (float): Discount factor.
+        alpha (jax.Array): Temperature parameter.
+        recurrent (bool): Whether the model is recurrent.
+        reward_scale (float): Reward scaling factor.
+
+    Returns:
+        Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
+    """
     # Apply the reward scaling here
     rewards = rewards * reward_scale
 
@@ -178,6 +223,22 @@ def policy_loss_function(
     alpha: jax.Array,
     rng: jax.random.PRNGKey,
 ) -> Tuple[jax.Array, Dict[str, jax.Array]]:
+    """
+    Compute the policy loss for the actor network.
+
+    Args:
+        actor_params (FrozenDict): Parameters of the actor network.
+        actor_state (LoadedTrainState): Actor train state.
+        critic_states (LoadedTrainState): Critic train states.
+        observations (jax.Array): Current observations.
+        dones (Optional[jax.Array]): Done flags.
+        recurrent (bool): Whether the model is recurrent.
+        alpha (jax.Array): Temperature parameter.
+        rng (jax.random.PRNGKey): Random number generator key.
+
+    Returns:
+        Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
+    """
     pi, _ = get_pi(
         actor_state=actor_state,
         actor_params=actor_params,
@@ -220,6 +281,17 @@ def alpha_loss_function(
     corrected_log_probs: jax.Array,
     target_entropy: float,
 ) -> Tuple[jax.Array, Dict[str, Any]]:
+    """
+    Compute the loss for the temperature parameter (alpha).
+
+    Args:
+        log_alpha_params (FrozenDict): Logarithm of alpha parameters.
+        corrected_log_probs (jax.Array): Log probabilities of actions.
+        target_entropy (float): Target entropy value.
+
+    Returns:
+        Tuple[jax.Array, Dict[str, Any]]: Loss and auxiliary metrics.
+    """
     log_alpha = log_alpha_params["log_alpha"]
     alpha = jnp.exp(log_alpha)
 
@@ -247,6 +319,23 @@ def update_value_functions(
     gamma: float,
     reward_scale: float = 5.0,  # Add reward scaling factor here
 ) -> Tuple[SACState, Dict[str, Any]]:
+    """
+    Update the critic networks using the value loss.
+
+    Args:
+        agent_state (SACState): Current SAC agent state.
+        observations (jax.Array): Current observations.
+        actions (jax.Array): Actions taken.
+        next_observations (jax.Array): Next observations.
+        dones (Optional[jax.Array]): Done flags.
+        recurrent (bool): Whether the model is recurrent.
+        rewards (jax.Array): Rewards received.
+        gamma (float): Discount factor.
+        reward_scale (float): Reward scaling factor.
+
+    Returns:
+        Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
+    """
     value_loss_key, rng = jax.random.split(agent_state.rng)
     value_and_grad_fn = jax.value_and_grad(value_loss_function, has_aux=True)
     log_alpha = agent_state.alpha.params["log_alpha"]
@@ -287,6 +376,18 @@ def update_policy(
     done: Optional[jax.Array],
     recurrent: bool,
 ) -> Tuple[SACState, Dict[str, Any]]:
+    """
+    Update the actor network using the policy loss.
+
+    Args:
+        agent_state (SACState): Current SAC agent state.
+        observations (jax.Array): Current observations.
+        done (Optional[jax.Array]): Done flags.
+        recurrent (bool): Whether the model is recurrent.
+
+    Returns:
+        Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
+    """
     rng, policy_key = jax.random.split(agent_state.rng)
     value_and_grad_fn = jax.value_and_grad(policy_loss_function, has_aux=True)
     log_alpha = agent_state.alpha.params["log_alpha"]
@@ -323,6 +424,19 @@ def update_temperature(
     target_entropy: float,
     recurrent: bool,
 ) -> Tuple[SACState, Dict[str, Any]]:
+    """
+    Update the temperature parameter (alpha) using the alpha loss.
+
+    Args:
+        agent_state (SACState): Current SAC agent state.
+        observations (jax.Array): Current observations.
+        dones (Optional[jax.Array]): Done flags.
+        target_entropy (float): Target entropy value.
+        recurrent (bool): Whether the model is recurrent.
+
+    Returns:
+        Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
+    """
     loss_fn = jax.value_and_grad(alpha_loss_function, has_aux=True)
 
     pi, _ = get_pi(
@@ -357,6 +471,16 @@ def update_target_networks(
     agent_state: SACState,
     tau: float,
 ) -> SACState:
+    """
+    Perform a soft update of the target networks.
+
+    Args:
+        agent_state (SACState): Current SAC agent state.
+        tau (float): Soft update coefficient.
+
+    Returns:
+        SACState: Updated agent state.
+    """
     new_critic_state = agent_state.critic_state.soft_update(tau=tau)
     return agent_state.replace(
         critic_state=new_critic_state,
@@ -379,6 +503,24 @@ def update_agent(
     target_update_frequency: int = 1,
     reward_scale: float = 5.0,
 ) -> Tuple[SACState, None]:
+    """
+    Update the SAC agent, including critic, actor, and temperature updates.
+
+    Args:
+        agent_state (SACState): Current SAC agent state.
+        _ (Any): Placeholder for scan compatibility.
+        buffer (BufferType): Replay buffer.
+        recurrent (bool): Whether the model is recurrent.
+        gamma (float): Discount factor.
+        action_dim (int): Action dimensionality.
+        tau (float): Soft update coefficient.
+        num_critic_updates (int): Number of critic updates per step.
+        target_update_frequency (int): Frequency of target network updates.
+        reward_scale (float): Reward scaling factor.
+
+    Returns:
+        Tuple[SACState, None]: Updated agent state.
+    """
     # Sample buffer
 
     sample_key, rng = jax.random.split(agent_state.rng)
@@ -467,7 +609,25 @@ def training_iteration(
     log_frequency: int = 5000,
     num_episode_test: int = 10,
 ):
-    """Run one iteration of the algorithm : Collect experience from the environment and use it to update the agent."""
+    """
+    Perform one training iteration, including experience collection and agent updates.
+
+    Args:
+        agent_state (SACState): Current SAC agent state.
+        _ (Any): Placeholder for scan compatibility.
+        env_args (EnvironmentConfig): Environment configuration.
+        mode (str): Environment mode ("gymnax" or "brax").
+        recurrent (bool): Whether the model is recurrent.
+        buffer (BufferType): Replay buffer.
+        agent_args (SACConfig): SAC agent configuration.
+        action_dim (int): Action dimensionality.
+        lstm_hidden_size (Optional[int]): LSTM hidden size for recurrent models.
+        log_frequency (int): Frequency of logging and evaluation.
+        num_episode_test (int): Number of episodes for evaluation.
+
+    Returns:
+        Tuple[SACState, None]: Updated agent state.
+    """
     # collector_state = agent_state.collector_state
 
     timestep = agent_state.collector_state.timestep
@@ -555,6 +715,22 @@ def make_train(
     total_timesteps: int,
     num_episode_test: int,
 ):
+    """
+    Create the training function for the SAC agent.
+
+    Args:
+        env_args (EnvironmentConfig): Environment configuration.
+        optimizer_args (OptimizerConfig): Optimizer configuration.
+        network_args (NetworkConfig): Network configuration.
+        buffer (BufferType): Replay buffer.
+        agent_args (SACConfig): SAC agent configuration.
+        alpha_args (AlphaConfig): Alpha configuration.
+        total_timesteps (int): Total timesteps for training.
+        num_episode_test (int): Number of episodes for evaluation during training.
+
+    Returns:
+        Callable: JIT-compiled training function.
+    """
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
 
     @partial(jax.jit)
