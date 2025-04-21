@@ -1,8 +1,11 @@
+import functools
+import os
 from collections.abc import Sequence
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
+import wandb
 from gymnax import EnvParams
 
 from ajax.agents.sac.state import SACConfig
@@ -13,8 +16,44 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import EnvType
+
+
+def safe_get_env_var(var_name: str, default: str = "") -> str:
+    """
+    Safely retrieve an environment variable.
+
+    Args:
+        var_name (str): The name of the environment variable.
+        default (Optional[str]): Default value if the variable is not set.
+
+    Returns:
+        Optional[str]: The value of the environment variable or default.
+    """
+    value = os.environ.get(var_name)
+    if value is None:
+        return default
+    return value
+
+
+def with_wandb_silent(func: Callable) -> Callable:
+    """
+    Decorator to temporarily set WANDB_SILENT to true during a function's execution,
+    restoring it afterward.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs) -> Any:
+        initial_wandb_silent = safe_get_env_var("WANDB_SILENT")
+        try:
+            os.environ["WANDB_SILENT"] = "true"
+            return func(*args, **kwargs)
+        finally:
+            os.environ["WANDB_SILENT"] = initial_wandb_silent
+
+    return wrapper
 
 
 class SAC:
@@ -112,11 +151,13 @@ class SAC:
             num_envs=num_envs,
         )
 
+    @with_wandb_silent
     def train(
         self,
         seed: int | Sequence[int] = 42,
         num_timesteps: int = int(1e6),
         num_episode_test: int = 10,
+        logging_config: Optional[LoggingConfig] = None,
     ) -> None:
         """
         Train the SAC agent.
@@ -129,7 +170,20 @@ class SAC:
         if isinstance(seed, int):
             seed = [seed]
 
-        def set_key_and_train(seed):
+        if logging_config is not None:
+            run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
+            for index, run_id in enumerate(run_ids):
+                wandb.init(
+                    project=logging_config.project_name,
+                    name=f"{logging_config.run_name}  {index}",
+                    id=run_id,
+                    resume="never",
+                    reinit=True,
+                )
+        else:
+            run_ids = None
+
+        def set_key_and_train(seed, index):
             key = jax.random.PRNGKey(seed)
 
             train_jit = make_train(
@@ -141,28 +195,26 @@ class SAC:
                 total_timesteps=num_timesteps,
                 alpha_args=self.alpha_args,
                 num_episode_test=num_episode_test,
+                run_ids=run_ids,
+                logging_config=logging_config,
             )
 
-            agent_state = train_jit(key)
+            agent_state = train_jit(key, index)
             return agent_state
 
+        index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        return jax.vmap(set_key_and_train, in_axes=0)(seed)
+        jax.vmap(set_key_and_train, in_axes=0)(seed, index)
 
         # jax.profiler.save_device_memory_profile("memory.prof")
 
 
 if __name__ == "__main__":
+    logging_config = LoggingConfig("SAC_test_vmap", "test", config={})
     env_id = "halfcheetah"
     sac_agent = SAC(
         env_id=env_id,
     )
-    import time
-
-    start_time = time.time()  # Start timing
-    sac_agent.train(seed=42, num_timesteps=int(1e6))
-    end_time = time.time()  # End timing
-
-    print(
-        f"Training completed in {end_time - start_time:.2f} seconds.",
-    )  # Print execution time
+    sac_agent.train(
+        seed=[42, 43], num_timesteps=int(1e6), logging_config=logging_config
+    )

@@ -1,4 +1,6 @@
-from typing import Any, Dict, Optional, Tuple
+import os
+from collections.abc import Sequence
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -16,6 +18,7 @@ from ajax.environments.interaction import (
 )
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.evaluate import evaluate
+from ajax.logging.wandb_logging import LoggingConfig, vmap_log
 from ajax.networks.networks import (
     get_adam_tx,
     get_initialized_actor_critic,
@@ -534,7 +537,7 @@ def update_agent(
     # Update Q functions
     @partial(
         jax.jit,
-        donate_argnames=["carry"],
+        donate_argnums=0,
     )
     def critic_update_step(carry, _):
         agent_state = carry
@@ -594,6 +597,9 @@ def update_agent(
         "buffer",
         "log_frequency",
         "num_episode_test",
+        "test_fn",
+        "log",
+        "verbose",
     ],
 )
 def training_iteration(
@@ -608,6 +614,10 @@ def training_iteration(
     lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 5000,
     num_episode_test: int = 10,
+    log_fn: Optional[Callable] = None,
+    index: Optional[int] = None,
+    log: bool = False,
+    verbose: bool = False,
 ):
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -672,9 +682,9 @@ def training_iteration(
         operand=agent_state,
     )
 
-    def run_and_log(agent_state):
+    def run_and_log(agent_state, index):
         eval_key, rng = jax.random.split(agent_state.rng)
-        rewards, entropy = evaluate(
+        eval_rewards, eval_entropy = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
             num_episodes=num_episode_test,
@@ -684,25 +694,51 @@ def training_iteration(
             lstm_hidden_size=lstm_hidden_size,
         )
 
-        jax.debug.print(
-            "[Eval] Step={timestep_val}, Reward={rewards_val}, Entropy={entropy_val}",
-            timestep_val=timestep,
-            rewards_val=rewards,
-            entropy_val=entropy,
-        )
+        metrics_to_log = {
+            "timestep": timestep,
+            "Eval/episodic mean reward": eval_rewards,
+            "Eval/episodic entropy": eval_entropy,
+        }
+        if log:
+            jax.debug.callback(log_fn, metrics_to_log, index)
+        # jax.debug.callback(log_variables, metrics_to_log)
+        if verbose:
+            jax.debug.print(
+                (
+                    "[Eval] Step={timestep_val}, Reward={rewards_val},"
+                    " Entropy={entropy_val}"
+                ),
+                timestep_val=timestep,
+                rewards_val=eval_rewards,
+                entropy_val=eval_entropy,
+            )
 
         return agent_state.replace(rng=rng)
 
-    def no_op(agent_state):
+    def no_op(agent_state, index):
         return agent_state
 
     agent_state = jax.lax.cond(
-        (timestep % log_frequency) == 0,
-        run_and_log,
-        no_op,
-        agent_state,
+        (timestep % log_frequency) == 0, run_and_log, no_op, agent_state, index
     )
     return agent_state, None
+
+
+def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[str]:
+    """
+    Safely retrieve an environment variable.
+
+    Args:
+        var_name (str): The name of the environment variable.
+        default (Optional[str]): Default value if the variable is not set.
+
+    Returns:
+        Optional[str]: The value of the environment variable or default.
+    """
+    value = os.environ.get(var_name)
+    if value is None:
+        return default
+    return value
 
 
 def make_train(
@@ -714,6 +750,8 @@ def make_train(
     alpha_args: AlphaConfig,
     total_timesteps: int,
     num_episode_test: int,
+    run_ids: Optional[Sequence[str]] = None,
+    logging_config: Optional[LoggingConfig] = None,
 ):
     """
     Create the training function for the SAC agent.
@@ -732,9 +770,14 @@ def make_train(
         Callable: JIT-compiled training function.
     """
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    log = logging_config is not None
+    if log:
+        log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
+    else:
+        log_fn = None
 
     @partial(jax.jit)
-    def train(key):
+    def train(key, index: Optional[int] = None):
         agent_state = init_sac(
             key=key,
             env_args=env_args,
@@ -756,6 +799,9 @@ def make_train(
             mode=mode,
             env_args=env_args,
             num_episode_test=num_episode_test,
+            log_fn=log_fn,
+            index=index,
+            log=log,
         )
 
         agent_state, _ = jax.lax.scan(
