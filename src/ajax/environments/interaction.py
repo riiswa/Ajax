@@ -48,7 +48,6 @@ def reset_env(
 @partial(
     jax.jit,
     static_argnames=["mode", "env", "env_params"],
-    donate_argnames=["state"],
 )
 def step_env(
     rng: jax.Array,
@@ -147,14 +146,7 @@ def maybe_add_axis(arr: jax.Array, recurrent: bool) -> jax.Array:
     return arr[jnp.newaxis, :] if recurrent else arr
 
 
-# @partial(
-#     chex.chexify,
-#     async_check=False,
-# )
-@partial(
-    jax.jit,
-    static_argnames=["recurrent"],
-)
+@partial(jax.jit, static_argnames=["recurrent"])
 def get_action_and_new_agent_state(
     agent_state: BaseAgentState,
     obs: jnp.ndarray,
@@ -198,7 +190,7 @@ def get_action_and_new_agent_state(
 @partial(
     jax.jit,
     static_argnames=["recurrent", "mode", "env_args", "buffer"],
-    donate_argnames=["agent_state"],
+    donate_argnums=0,
 )
 def collect_experience(
     agent_state: BaseAgentState,

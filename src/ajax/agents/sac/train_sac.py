@@ -537,7 +537,7 @@ def update_agent(
     # Update Q functions
     @partial(
         jax.jit,
-        donate_argnames=["carry"],
+        donate_argnums=0,
     )
     def critic_update_step(carry, _):
         agent_state = carry
@@ -616,7 +616,7 @@ def training_iteration(
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
-    log: bool = True,
+    log: bool = False,
     verbose: bool = False,
 ):
     """
@@ -750,8 +750,8 @@ def make_train(
     alpha_args: AlphaConfig,
     total_timesteps: int,
     num_episode_test: int,
-    run_ids: Sequence[str],
-    logging_config: LoggingConfig,
+    run_ids: Optional[Sequence[str]] = None,
+    logging_config: Optional[LoggingConfig] = None,
 ):
     """
     Create the training function for the SAC agent.
@@ -770,11 +770,14 @@ def make_train(
         Callable: JIT-compiled training function.
     """
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
     log = logging_config is not None
+    if log:
+        log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
+    else:
+        log_fn = None
 
     @partial(jax.jit)
-    def train(key, index):
+    def train(key, index: Optional[int] = None):
         agent_state = init_sac(
             key=key,
             env_args=env_args,
