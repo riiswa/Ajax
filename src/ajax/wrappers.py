@@ -1,7 +1,7 @@
 """Wrappers for environment"""
 
 from functools import partial
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple
 
 import chex
 import jax
@@ -40,7 +40,8 @@ class FlattenObservationWrapper(GymnaxWrapper):
     def observation_space(self, params) -> spaces.Box:
         """Get the observation space from a gymnax env given its params"""
         assert isinstance(
-            self._env.observation_space(params), spaces.Box
+            self._env.observation_space(params),
+            spaces.Box,
         ), "Only Box spaces are supported for now."
         return spaces.Box(
             low=self._env.observation_space(params).low,
@@ -51,7 +52,9 @@ class FlattenObservationWrapper(GymnaxWrapper):
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(
-        self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None
+        self,
+        key: chex.PRNGKey,
+        params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState]:
         """Reset the environment and flatten the observation"""
         obs, state = self._env.reset(key, params)
@@ -63,7 +66,7 @@ class FlattenObservationWrapper(GymnaxWrapper):
         self,
         key: chex.PRNGKey,
         state: environment.EnvState,
-        action: Union[int, float],
+        action: float,
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
         """Step the environment and flatten the observation"""
@@ -89,7 +92,9 @@ class LogWrapper(GymnaxWrapper):
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(
-        self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None
+        self,
+        key: chex.PRNGKey,
+        params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState]:
         """Reset the environment and log the state of the env"""
         obs, env_state = self._env.reset(key, params)
@@ -101,12 +106,15 @@ class LogWrapper(GymnaxWrapper):
         self,
         key: chex.PRNGKey,
         state: environment.EnvState,
-        action: Union[int, float],
+        action: float,
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
         """Step the environment and log the env state, episode return, episode length and timestep"""
         obs, env_state, reward, done, info = self._env.step(
-            key, state.env_state, action, params
+            key,
+            state.env_state,
+            action,
+            params,
         )
         new_episode_return = state.episode_returns + reward
         new_episode_length = state.episode_lengths + 1
@@ -264,7 +272,10 @@ class NormalizeVecObservation(GymnaxWrapper):
     def step(self, key, state, action, params=None):
         """Step the environment and return the normalized obs"""
         obs, env_state, reward, done, info = self._env.step(
-            key, state.env_state, action, params
+            key,
+            state.env_state,
+            action,
+            params,
         )
 
         batch_mean = jnp.mean(obs, axis=0)
@@ -442,7 +453,10 @@ class NormalizeVecReward(GymnaxWrapper):
     def step(self, key, state, action, params=None):
         """Step the environment and return the normalized reward"""
         obs, env_state, reward, done, info = self._env.step(
-            key, state.env_state, action, params
+            key,
+            state.env_state,
+            action,
+            params,
         )
         return_val = state.return_val * self.gamma * (1 - done) + reward
 

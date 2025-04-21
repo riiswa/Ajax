@@ -3,25 +3,27 @@ from typing import Optional, Tuple, Union
 import brax
 import brax.envs
 import gymnax
+from gymnax import EnvParams
+
 from ajax.environments.utils import (
     EnvType,
     check_if_environment_has_continuous_actions,
     get_env_type,
 )
 from ajax.wrappers import get_wrappers
-from gymnax import EnvParams
 
 
 def build_env_from_id(
-    env_id: str, num_envs: int = 1, **kwargs
+    env_id: str,
+    num_envs: int = 1,
+    **kwargs,
 ) -> tuple[EnvType, Optional[EnvParams]]:
     if env_id in gymnax.registered_envs:
         env, env_params = gymnax.make(env_id)
         return env, env_params
     if env_id in list(brax.envs._envs.keys()):
         return brax.envs.create(env_id, batch_size=num_envs, **kwargs), None
-    else:
-        raise ValueError(f"Environment {env_id} not found in gymnax or brax")
+    raise ValueError(f"Environment {env_id} not found in gymnax or brax")
 
 
 def prepare_env(

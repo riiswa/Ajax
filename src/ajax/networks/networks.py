@@ -1,9 +1,14 @@
-from typing import Optional, Sequence, Tuple, Union
+from collections.abc import Sequence
+from typing import Tuple, Union
 
 import distrax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from flax.core import FrozenDict
+from flax.linen.initializers import constant, orthogonal
+from flax.serialization import to_state_dict
+
 from ajax.agents.sac.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.networks.scanned_rnn import ScannedRNN
@@ -15,9 +20,6 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import ActivationFunction, HiddenState
-from flax.core import FrozenDict
-from flax.linen.initializers import constant, orthogonal
-from flax.serialization import to_state_dict
 
 """
 Heavy inspiration from https://github.com/Howuhh/sac-n-jax/blob/main/sac_n_jax_flax.py
@@ -66,7 +68,7 @@ class Actor(nn.Module):
                         bias_init=constant(0.0),
                     ),
                     distrax.Categorical,
-                ]
+                ],
             )
 
     @nn.compact
@@ -92,7 +94,9 @@ class Critic(nn.Module):
     def setup(self):
         self.encoder = Encoder(input_architecture=self.input_architecture)
         self.model = nn.Dense(
-            1, kernel_init=uniform_init(3e-3), bias_init=uniform_init(3e-3)
+            1,
+            kernel_init=uniform_init(3e-3),
+            bias_init=uniform_init(3e-3),
         )
 
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -129,7 +133,8 @@ def get_initialized_actor_critic(
     num_critics: int = 1,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """Create actor and critic adapted to the environment and following the\
-          given architectures"""
+          given architectures
+    """
     action_dim = get_action_dim(env_config.env, env_config.env_params)
     actor = Actor(
         input_architecture=network_config.actor_architecture,
@@ -144,7 +149,8 @@ def get_initialized_actor_critic(
     tx = get_adam_tx(**to_state_dict(optimizer_config))
     actor_key, critic_key = jax.random.split(key)
     observation_shape, action_shape = get_state_action_shapes(
-        env_config.env, env_config.env_params
+        env_config.env,
+        env_config.env_params,
     )
     init_obs = jnp.zeros((env_config.num_envs, *observation_shape))
     init_action = jnp.zeros((env_config.num_envs, *action_shape))
@@ -199,6 +205,8 @@ def init_network_state(init_x, network, key, tx, recurrent, lstm_hidden_size, nu
 
 
 def predict_value(
-    critic_state: LoadedTrainState, critic_params: FrozenDict, x: jax.Array
+    critic_state: LoadedTrainState,
+    critic_params: FrozenDict,
+    x: jax.Array,
 ) -> jax.Array:
     return critic_state.apply_fn(critic_params, x)

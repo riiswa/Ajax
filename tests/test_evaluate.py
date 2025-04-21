@@ -1,7 +1,9 @@
 import gymnax
 import jax
-import jax.numpy as jnp
 import pytest
+from brax.envs import create as create_brax_env
+from flax.serialization import to_state_dict
+
 from ajax.agents.sac.train_sac import init_sac
 from ajax.buffers.utils import get_buffer
 from ajax.evaluate import evaluate
@@ -12,8 +14,6 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
-from brax.envs import create as create_brax_env
-from flax.serialization import to_state_dict
 
 
 @pytest.fixture

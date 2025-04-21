@@ -2,10 +2,11 @@ from typing import Optional
 
 import jax
 import jax.numpy as jnp
-from ajax.environments.interaction import get_pi, reset_env, step_env
-from ajax.environments.utils import check_env_is_gymnax
 from brax.envs import create
 from gymnax.environments.environment import EnvParams
+
+from ajax.environments.interaction import get_pi, reset_env, step_env
+from ajax.environments.utils import check_env_is_gymnax
 
 
 def evaluate(
@@ -61,7 +62,8 @@ def evaluate(
             jax.random.split(step_key, num_episodes) if mode == "gymnax" else step_key
         )
         actions, entropy = get_deterministic_action_and_entropy(
-            obs, done if recurrent else None
+            obs,
+            done if recurrent else None,
         )
         obs, state, new_rewards, new_done, _ = step_env(
             step_keys,
@@ -84,7 +86,9 @@ def evaluate(
         return jnp.logical_not(done.all())
 
     rewards, _, _, _, _, entropy_sum, step_count = jax.lax.while_loop(
-        env_not_done, sample_action_and_step_env, carry
+        env_not_done,
+        sample_action_and_step_env,
+        carry,
     )
 
     avg_entropy = entropy_sum / jnp.maximum(step_count, 1.0)  # avoid divide by zero

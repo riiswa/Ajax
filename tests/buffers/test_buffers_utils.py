@@ -1,7 +1,6 @@
-import flashbax as fbx
 import jax
-import jax.numpy as jnp
 import pytest
+
 from ajax.buffers.utils import get_batch_from_buffer, get_buffer, init_buffer
 from ajax.environments.create import build_env_from_id
 from ajax.environments.utils import get_state_action_shapes

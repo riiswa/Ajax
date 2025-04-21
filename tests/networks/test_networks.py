@@ -1,6 +1,9 @@
 import jax
 import jax.numpy as jnp
 import pytest
+from brax.envs import create as create_brax_env
+from gymnax import EnvParams
+
 from ajax.environments.create import build_env_from_id
 from ajax.environments.utils import get_state_action_shapes
 from ajax.networks.networks import (
@@ -17,8 +20,6 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
-from brax.envs import create as create_brax_env
-from gymnax import EnvParams
 
 
 @pytest.fixture
@@ -245,7 +246,6 @@ def test_get_initialized_actor_critic_continuous(
         fast_env_config.env, fast_env_config.env_params
     )
     init_obs = jnp.zeros((fast_env_config.num_envs, *observation_shape))
-    init_action = jnp.zeros((fast_env_config.num_envs, *action_shape))
 
     # Validate actor state
     actor_output = actor_state.apply_fn(actor_state.params, init_obs)

@@ -5,10 +5,11 @@ import flax
 import jax
 import jax.numpy as jnp
 import optax
-from ajax.types import EnvStateType, EnvType, HiddenState
 from flax import struct
 from flax.training.train_state import TrainState
 from gymnax import EnvParams
+
+from ajax.types import EnvStateType, EnvType
 
 
 @struct.dataclass
@@ -26,10 +27,10 @@ class CollectorState:
     rng: jax.Array
     env_state: EnvStateType
     last_obs: jnp.ndarray
+    last_done: jnp.ndarray
     num_update: int = 0
     timestep: int = 0
     average_reward: float = 0.0
-    last_done: Optional[jnp.ndarray] = None
     buffer_state: Optional[fbx.flat_buffer.TrajectoryBufferState] = None
 
 
@@ -41,12 +42,14 @@ class LoadedTrainState(TrainState):
 
     def soft_update(self, tau):
         new_target_params = optax.incremental_update(
-            self.params, self.target_params, tau
+            self.params,
+            self.target_params,
+            tau,
         )
         return self.replace(target_params=new_target_params)
 
     @classmethod
-    def create(cls, *, hidden_state=None, apply_fn: Callable = None, **kwargs):
+    def create(cls, *, hidden_state=None, apply_fn: Callable, **kwargs):
         # Ensure apply_fn is passed to the parent TrainState
         instance = super().create(apply_fn=apply_fn, **kwargs)
         # Determine if the state is recurrent
@@ -103,8 +106,6 @@ class BufferConfig:
 
 @struct.dataclass
 class BaseAgentConfig:
-    """
-    The agent properties to be carried over iterations of environment interaction and updates
-    """
+    """The agent properties to be carried over iterations of environment interaction and updates"""
 
     gamma: float
