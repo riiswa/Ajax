@@ -204,7 +204,8 @@ class SAC:
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        agent_state = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        agent_state.rng.block_until_ready()
 
         # jax.profiler.save_device_memory_profile("memory.prof")
 
@@ -212,9 +213,10 @@ class SAC:
 if __name__ == "__main__":
     logging_config = LoggingConfig("SAC_test_vmap", "test", config={})
     env_id = "halfcheetah"
-    sac_agent = SAC(
-        env_id=env_id,
-    )
+
+    sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
     sac_agent.train(
-        seed=[42, 43], num_timesteps=int(1e6), logging_config=logging_config
+        seed=[42],
+        num_timesteps=int(1e5),
+        logging_config=logging_config,
     )

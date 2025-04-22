@@ -429,6 +429,26 @@ class NormalizeVecRewEnvStateBrax:
     info: Dict[str, Any] = struct.field(default_factory=dict)
 
 
+@jax.jit
+def _return_original_reward(reward):
+    return reward
+
+
+@jax.jit
+def _normalize_reward(reward, var):
+    return reward / jnp.sqrt(var + 1e-8)
+
+
+@jax.jit
+def normalize_reward(reward, var):
+    return jax.lax.cond(
+        jnp.abs(var) < 1e-3,
+        _return_original_reward,
+        lambda x: _normalize_reward(x, var),
+        operand=reward,
+    )
+
+
 class NormalizeVecReward(GymnaxWrapper):
     """Wrapper for online normalization of rewards"""
 
@@ -473,12 +493,7 @@ class NormalizeVecReward(GymnaxWrapper):
         M2 = m_a + m_b + jnp.square(delta) * state.count * batch_count / tot_count
         new_var = M2 / tot_count
         new_count = tot_count
-        new_reward = jax.lax.cond(
-            jnp.abs(state.var) < 1e-3,
-            lambda _: reward,
-            lambda _: reward / jnp.sqrt(state.var + 1e-8),
-            operand=None,
-        )
+        new_reward = normalize_reward(reward, state.var)
         state = NormalizeVecRewEnvState(
             mean=new_mean,
             var=new_var,
@@ -551,12 +566,7 @@ class NormalizeVecRewardBrax(BraxWrapper):
         )
         new_var = M2 / tot_count
         new_count = tot_count
-        new_reward = jax.lax.cond(
-            jnp.abs(wrapped_state.var) < 1e-3,
-            lambda _: reward,
-            lambda _: reward / jnp.sqrt(wrapped_state.var + 1e-8),
-            operand=None,
-        )
+        new_reward = normalize_reward(reward, wrapped_state.var)
         new_wrapped_state = NormalizeVecRewEnvStateBrax(
             mean=new_mean,
             var=new_var,

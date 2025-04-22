@@ -4,11 +4,22 @@ import jax
 import jax.numpy as jnp
 from brax.envs import create
 from gymnax.environments.environment import EnvParams
+from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import get_pi, reset_env, step_env
 from ajax.environments.utils import check_env_is_gymnax
 
 
+@partial(
+    jax.jit,
+    static_argnames=[
+        "recurrent",
+        "env_params",
+        "num_episodes",
+        "lstm_hidden_size",
+        "env",
+    ],
+)
 def evaluate(
     env,
     actor_state,
@@ -78,6 +89,7 @@ def evaluate(
         step_count += still_running.mean()
         entropy_sum += (entropy.mean() * still_running).mean()
         done = done | jnp.int8(new_done)
+
         rewards += new_rewards * (1 - done)
         return rewards, rng, obs, done, state, entropy_sum, step_count
 

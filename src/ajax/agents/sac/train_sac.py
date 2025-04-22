@@ -24,6 +24,7 @@ from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
 )
+from ajax.profiling import trace_profiler
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -32,6 +33,12 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import BufferType
+
+PROFILER_PATH = "./tensorboard"
+
+
+def get_alpha_from_params(params: FrozenDict) -> float:
+    return jnp.exp(params["log_alpha"])
 
 
 def create_alpha_train_state(
@@ -52,7 +59,7 @@ def create_alpha_train_state(
     params = FrozenDict({"log_alpha": log_alpha})
     tx = get_adam_tx(learning_rate)
     return TrainState.create(
-        apply_fn=lambda params: jnp.exp(params["log_alpha"]),  # Optional
+        apply_fn=get_alpha_from_params,  # Optional
         params=params,
         tx=tx,
     )
@@ -535,10 +542,6 @@ def update_agent(
     agent_state = agent_state.replace(rng=rng)
 
     # Update Q functions
-    @partial(
-        jax.jit,
-        donate_argnums=0,
-    )
     def critic_update_step(carry, _):
         agent_state = carry
         agent_state, aux_value = update_value_functions(
@@ -597,7 +600,7 @@ def update_agent(
         "buffer",
         "log_frequency",
         "num_episode_test",
-        "test_fn",
+        "log_fn",
         "log",
         "verbose",
     ],
@@ -641,12 +644,7 @@ def training_iteration(
     # collector_state = agent_state.collector_state
 
     timestep = agent_state.collector_state.timestep
-    uniform = jax.lax.cond(
-        timestep < agent_args.learning_starts,
-        lambda _: True,
-        lambda _: False,
-        operand=None,
-    )
+    uniform = should_use_uniform_sampling(timestep, agent_args.learning_starts)
 
     collect_scan_fn = partial(
         collect_experience,
@@ -701,7 +699,6 @@ def training_iteration(
         }
         if log:
             jax.debug.callback(log_fn, metrics_to_log, index)
-        # jax.debug.callback(log_variables, metrics_to_log)
         if verbose:
             jax.debug.print(
                 (
@@ -713,6 +710,8 @@ def training_iteration(
                 entropy_val=eval_entropy,
             )
 
+        jax.debug.callback(profile_memory, timestep)
+
         return agent_state.replace(rng=rng)
 
     def no_op(agent_state, index):
@@ -721,7 +720,13 @@ def training_iteration(
     agent_state = jax.lax.cond(
         (timestep % log_frequency) == 0, run_and_log, no_op, agent_state, index
     )
+
     return agent_state, None
+
+
+def profile_memory(timestep):
+    jax.debug.print("ça profile là")
+    jax.profiler.save_device_memory_profile(f"memory{timestep}.prof")
 
 
 def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[str]:
@@ -771,11 +776,9 @@ def make_train(
     """
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
-    if log:
-        log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
-    else:
-        log_fn = None
+    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
+    @trace_profiler(base_path=PROFILER_PATH)
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         agent_state = init_sac(
@@ -813,3 +816,32 @@ def make_train(
         return agent_state
 
     return train
+
+
+@jax.jit
+def _return_true(_):
+    return True
+
+
+@jax.jit
+def _return_false(_):
+    return False
+
+
+@jax.jit
+def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> bool:
+    """Check if we should use uniform sampling based on timestep and learning starts.
+
+    Args:
+        timestep: Current timestep
+        learning_starts: Number of timesteps before learning starts
+
+    Returns:
+        bool: Whether to use uniform sampling
+    """
+    return jax.lax.cond(
+        timestep < learning_starts,
+        _return_true,
+        _return_false,
+        operand=None,
+    )

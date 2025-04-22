@@ -10,13 +10,12 @@ from ajax.state import EnvironmentConfig
 def get_buffer(
     buffer_size: int,
     batch_size: int,
-    min_length: int = 1,
     num_envs: int = 1,
 ):
     return fbx.make_flat_buffer(
         max_length=buffer_size,
         sample_batch_size=batch_size,
-        min_length=min_length,
+        min_length=batch_size,
         add_batch_size=num_envs,
     )
 
@@ -58,16 +57,23 @@ def init_buffer(
     return buffer_state
 
 
+def assert_shape(x, expected_shape, name="tensor"):
+    assert (
+        x.shape == expected_shape
+    ), f"{name} has shape {x.shape}, expected {expected_shape}"
+
+
 @partial(
     jax.jit,
     static_argnames=["buffer"],
 )
 def get_batch_from_buffer(buffer, buffer_state, key):
     batch = buffer.sample(buffer_state, key).experience
-    return (
-        batch.first["obs"],
-        batch.first["done"],
-        batch.first["next_obs"],
-        batch.first["reward"],
-        batch.first["action"],
-    )
+
+    obs = batch.first["obs"]
+    act = batch.first["action"]
+    rew = batch.first["reward"]
+    next_obs = batch.first["next_obs"]
+    done = batch.first["done"]
+
+    return obs, done, next_obs, rew, act

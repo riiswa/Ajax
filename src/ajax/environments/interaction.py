@@ -16,6 +16,7 @@ from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
 )
+from ajax.types import BufferType
 
 
 @partial(jax.jit, static_argnames=["mode", "env", "env_params"])
@@ -187,6 +188,12 @@ def get_action_and_new_agent_state(
     )
 
 
+def assert_shape(x, expected_shape, name="tensor"):
+    assert (
+        x.shape == expected_shape
+    ), f"{name} has shape {x.shape}, expected {expected_shape}"
+
+
 @partial(
     jax.jit,
     static_argnames=["recurrent", "mode", "env_args", "buffer"],
@@ -198,7 +205,7 @@ def collect_experience(
     recurrent: bool,
     mode: str,
     env_args: EnvironmentConfig,
-    buffer: fbx.flat_buffer.TrajectoryBuffer,
+    buffer: BufferType,
     uniform: bool = False,
 ):
     """Collect experience by interacting with the environment.
@@ -229,12 +236,15 @@ def collect_experience(
         minval=-1.0,
         maxval=1.0,
     )
+    assert_shape(uniform_action, action.shape)
 
     # Use jax.lax.cond to choose between uniform sampling and policy sampling
     action = jax.lax.cond(
         uniform,
-        lambda: uniform_action,
-        lambda: action,
+        _select_uniform_action,
+        _select_policy_action,
+        uniform_action,
+        action,
     )
 
     rng, step_key = jax.random.split(agent_state.rng)
@@ -251,7 +261,7 @@ def collect_experience(
         env_args.env_params,
     )
 
-    buffer_state = jax.jit(buffer.add, donate_argnums=(1,))(
+    buffer_state = buffer.add(
         agent_state.collector_state.buffer_state,
         {
             "obs": agent_state.collector_state.last_obs,
@@ -299,3 +309,13 @@ def init_collector_state(
         timestep=0,
         last_done=last_done,
     )
+
+
+@jax.jit
+def _select_uniform_action(uniform_action, _):
+    return uniform_action
+
+
+@jax.jit
+def _select_policy_action(_, action):
+    return action

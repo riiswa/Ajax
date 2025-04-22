@@ -44,13 +44,13 @@ ruff = "^0.11.6"
 moviepy = "^1.0.3"
 imageio = {extras = ["ffmpeg"], version = "^2.37.0"}
 
-[tool.poetry.group.profiling.dependencies]
-tensorflow = "^2.19.0"
-tensorboard = "^2.19.0"
-tensorboard-plugin-profile = "^2.19.4"
-
 [tool.poetry.group.wandb.dependencies]
 wandb = "^0.19.9"
+
+
+[tool.poetry.group.profiling.dependencies]
+tensorflow = "^2.19.0"
+tensorboard-plugin-profile = "^2.19.4"
 
 [[tool.poetry.source]]
 name = "pypi"

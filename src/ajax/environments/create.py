@@ -46,8 +46,8 @@ def prepare_env(
     continuous = check_if_environment_has_continuous_actions(env)
 
     mode = get_env_type(env)
-
-    ClipAction, NormalizeVecObservation, NormalizeVecReward = get_wrappers(mode)
+    if normalize_obs or normalize_reward:
+        ClipAction, NormalizeVecObservation, NormalizeVecReward = get_wrappers(mode)
 
     # Apply wrappers based on flags
     if normalize_obs:

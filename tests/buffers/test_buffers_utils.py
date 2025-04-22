@@ -11,10 +11,9 @@ from ajax.state import EnvironmentConfig
 def buffer_fixture():
     buffer_size = 100
     batch_size = 10
-    min_length = 5
     num_envs = 2
 
-    buffer = get_buffer(buffer_size, batch_size, min_length, num_envs)
+    buffer = get_buffer(buffer_size, batch_size, num_envs)
     return buffer, buffer_size, batch_size, num_envs
 
 
@@ -43,7 +42,9 @@ def test_get_buffer(buffer_fixture):
 
     assert buffer.init.keywords["add_batch_size"] == num_envs
     assert buffer.init.keywords["max_length_time_axis"] == buffer_size // num_envs
-    assert buffer.can_sample.keywords["min_length_time_axis"] == 3
+    assert (
+        buffer.can_sample.keywords["min_length_time_axis"] == batch_size // num_envs + 1
+    )
 
 
 @pytest.mark.dependency(depends=["test_get_buffer"])
