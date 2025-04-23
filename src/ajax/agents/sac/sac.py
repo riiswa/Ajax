@@ -19,6 +19,10 @@ from ajax.environments.utils import (
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import EnvType
+import objgraph
+from memory_profiler import profile
+import tracemalloc
+
 
 
 def safe_get_env_var(var_name: str, default: str = "") -> str:
@@ -151,6 +155,7 @@ class SAC:
             num_envs=num_envs,
         )
 
+    
     @with_wandb_silent
     def train(
         self,
@@ -182,7 +187,7 @@ class SAC:
                 )
         else:
             run_ids = None
-
+        
         def set_key_and_train(seed, index):
             key = jax.random.PRNGKey(seed)
 
@@ -205,7 +210,6 @@ class SAC:
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
         agent_state = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
-        agent_state.rng.block_until_ready()
 
         # jax.profiler.save_device_memory_profile("memory.prof")
 
@@ -213,10 +217,10 @@ class SAC:
 if __name__ == "__main__":
     logging_config = LoggingConfig("SAC_test_vmap", "test", config={})
     env_id = "halfcheetah"
-
+    jax.config.update("jax_disable_jit", False)
     sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
     sac_agent.train(
-        seed=[42],
-        num_timesteps=int(1e5),
-        logging_config=logging_config,
+            seed=list(range(40)),
+            num_timesteps=int(1e6),
+            logging_config=logging_config,
     )

@@ -8,7 +8,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
-
+import gc
 from ajax.agents.sac.state import SACConfig, SACState
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
@@ -33,7 +33,7 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import BufferType
-
+from memory_profiler import profile
 PROFILER_PATH = "./tensorboard"
 
 
@@ -178,13 +178,13 @@ def value_loss_function(
     q_preds = predict_value(
         critic_state=critic_states,
         critic_params=critic_params,
-        x=jnp.concatenate([observations, actions], axis=-1),
+        x=jnp.concatenate((observations, actions), axis=-1),
     )
     # Target Q-values using target networks
     q_targets = predict_value(
         critic_state=critic_states,
         critic_params=critic_states.target_params,
-        x=jnp.concatenate([next_observations, next_actions], axis=-1),
+        x=jnp.concatenate((next_observations, next_actions), axis=-1),
     )
 
     # Unpack and unsqueeze if needed
@@ -263,7 +263,7 @@ def policy_loss_function(
     q_preds = predict_value(
         critic_state=critic_states,
         critic_params=critic_states.params,
-        x=jnp.hstack([observations, actions]),
+        x=jnp.hstack((observations, actions)),
     )
 
     # Unpack and unsqueeze if needed
@@ -590,7 +590,6 @@ def update_agent(
     return agent_state, None
 
 
-@jax.named_call
 @partial(
     jax.jit,
     static_argnames=[
@@ -657,6 +656,7 @@ def training_iteration(
     agent_state, _ = jax.lax.scan(collect_scan_fn, agent_state, xs=None, length=1)
     timestep = agent_state.collector_state.timestep
 
+
     def do_update(agent_state):
         update_scan_fn = partial(
             update_agent,
@@ -680,6 +680,7 @@ def training_iteration(
         operand=agent_state,
     )
 
+
     def run_and_log(agent_state, index):
         eval_key, rng = jax.random.split(agent_state.rng)
         eval_rewards, eval_entropy = evaluate(
@@ -692,13 +693,16 @@ def training_iteration(
             lstm_hidden_size=lstm_hidden_size,
         )
 
-        metrics_to_log = {
-            "timestep": timestep,
-            "Eval/episodic mean reward": eval_rewards,
-            "Eval/episodic entropy": eval_entropy,
-        }
+        
         if log:
+            metrics_to_log = {
+                "timestep": timestep,
+                "Eval/episodic mean reward": eval_rewards,
+                "Eval/episodic entropy": eval_entropy,
+            }
             jax.debug.callback(log_fn, metrics_to_log, index)
+            jax.clear_caches()
+            
         if verbose:
             jax.debug.print(
                 (
@@ -709,18 +713,19 @@ def training_iteration(
                 rewards_val=eval_rewards,
                 entropy_val=eval_entropy,
             )
-
-        jax.debug.callback(profile_memory, timestep)
-
+        
         return agent_state.replace(rng=rng)
 
     def no_op(agent_state, index):
         return agent_state
-
+    
     agent_state = jax.lax.cond(
         (timestep % log_frequency) == 0, run_and_log, no_op, agent_state, index
     )
 
+    
+    jax.clear_caches()
+    gc.collect()
     return agent_state, None
 
 
@@ -778,7 +783,7 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
-    @trace_profiler(base_path=PROFILER_PATH)
+    #@trace_profiler(base_path=PROFILER_PATH)
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         agent_state = init_sac(
@@ -813,6 +818,7 @@ def make_train(
             xs=None,
             length=num_updates,
         )
+        
         return agent_state
 
     return train
