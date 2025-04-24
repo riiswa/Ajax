@@ -1,6 +1,7 @@
 import gc
 import os
 from collections.abc import Sequence
+from dataclasses import fields
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
@@ -637,7 +638,7 @@ def no_op(agent_state, index):
     return agent_state
 
 
-def no_op_none(agent_state, index):
+def no_op_none(agent_state, index, timestep):
     pass
 
 
@@ -670,7 +671,7 @@ def training_iteration(
     agent_args: SACConfig,
     action_dim: int,
     lstm_hidden_size: Optional[int] = None,
-    log_frequency: int = 100,
+    log_frequency: int = 5000,
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
@@ -729,8 +730,6 @@ def training_iteration(
             )
         )
         return agent_state, aux
-
-    from dataclasses import fields
 
     def fill_with_nan(dataclass):
         """
@@ -796,14 +795,17 @@ def training_iteration(
         (timestep % log_frequency) == 0, run_and_log, no_op, agent_state, index
     )
 
-    def prepare_and_log(aux, index):
+    def prepare_and_log(aux, index, timestep):
         filtered_metrics = prepare_metrics(aux)
+        filtered_metrics["timestep"] = timestep
         log_fn(filtered_metrics, index)
 
-    def log_aux(aux, index):
-        jax.debug.callback(prepare_and_log, aux, index)
+    def log_aux(aux, index, timestep):
+        jax.debug.callback(prepare_and_log, aux, index, timestep)
 
-    jax.lax.cond((timestep % log_frequency) == 0, log_aux, no_op_none, aux, index)
+    jax.lax.cond(
+        (timestep % log_frequency) == 0, log_aux, no_op_none, aux, index, timestep
+    )
 
     jax.clear_caches()
     gc.collect()
@@ -864,7 +866,6 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
-    # @trace_profiler(base_path=PROFILER_PATH)
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         agent_state = init_sac(
