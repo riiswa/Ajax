@@ -225,20 +225,19 @@ def value_loss_function(
     q1_target, q2_target = jnp.split(q_targets, 2, axis=0)
 
     # Bellman target and losses
-    min_q_target = jnp.minimum(q1_target, q2_target)
+    min_q_target = jnp.minimum(q1_target, q2_target).squeeze(0)
     log_probs = log_probs.sum(-1, keepdims=True)
+
     target_q = jax.lax.stop_gradient(
         rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs),
     )
 
-    assert (
-        target_q.shape[1:] == q_preds.shape[1:]
-    ), f"{target_q.shape} != {q_preds.shape}"
-
+    assert target_q.shape == q_preds.shape[1:], f"{target_q.shape} != {q_preds.shape}"
+    assert min_q_target.shape == log_probs.shape
     # total_loss = jnp.square(q_preds - target_q[None, ...]).mean()
 
-    loss_q1 = jnp.mean((q1_pred - target_q) ** 2)
-    loss_q2 = jnp.mean((q2_pred - target_q) ** 2)
+    loss_q1 = jnp.mean((q1_pred.squeeze(0) - target_q) ** 2)
+    loss_q2 = jnp.mean((q2_pred.squeeze(0) - target_q) ** 2)
     total_loss = loss_q1 + loss_q2
 
     return total_loss, ValueAuxiliaries(
@@ -354,7 +353,7 @@ def update_value_functions(
     recurrent: bool,
     rewards: jax.Array,
     gamma: float,
-    reward_scale: float = 5.0,  # Add reward scaling factor here
+    reward_scale: float = 1.0,  # Add reward scaling factor here
 ) -> Tuple[SACState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
