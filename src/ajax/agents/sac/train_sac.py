@@ -1,3 +1,4 @@
+import gc
 import os
 from collections.abc import Sequence
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -8,14 +9,14 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
-import gc
+
 from ajax.agents.sac.state import SACConfig, SACState
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,
     init_collector_state,
-    should_use_uniform_sampling
+    should_use_uniform_sampling,
 )
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.evaluate import evaluate
@@ -25,7 +26,6 @@ from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
 )
-from ajax.profiling import trace_profiler
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -34,7 +34,7 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import BufferType
-from memory_profiler import profile
+
 PROFILER_PATH = "./tensorboard"
 
 
@@ -657,7 +657,6 @@ def training_iteration(
     agent_state, _ = jax.lax.scan(collect_scan_fn, agent_state, xs=None, length=1)
     timestep = agent_state.collector_state.timestep
 
-
     def do_update(agent_state):
         update_scan_fn = partial(
             update_agent,
@@ -681,7 +680,6 @@ def training_iteration(
         operand=agent_state,
     )
 
-
     def run_and_log(agent_state, index):
         eval_key, rng = jax.random.split(agent_state.rng)
         eval_rewards, eval_entropy = evaluate(
@@ -694,7 +692,6 @@ def training_iteration(
             lstm_hidden_size=lstm_hidden_size,
         )
 
-        
         if log:
             metrics_to_log = {
                 "timestep": timestep,
@@ -703,7 +700,7 @@ def training_iteration(
             }
             jax.debug.callback(log_fn, metrics_to_log, index)
             jax.clear_caches()
-            
+
         if verbose:
             jax.debug.print(
                 (
@@ -714,17 +711,16 @@ def training_iteration(
                 rewards_val=eval_rewards,
                 entropy_val=eval_entropy,
             )
-        
+
         return agent_state.replace(rng=rng)
 
     def no_op(agent_state, index):
         return agent_state
-    
+
     agent_state = jax.lax.cond(
         (timestep % log_frequency) == 0, run_and_log, no_op, agent_state, index
     )
 
-    
     jax.clear_caches()
     gc.collect()
     return agent_state, None
@@ -784,7 +780,7 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
-    #@trace_profiler(base_path=PROFILER_PATH)
+    # @trace_profiler(base_path=PROFILER_PATH)
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         agent_state = init_sac(
@@ -819,10 +815,7 @@ def make_train(
             xs=None,
             length=num_updates,
         )
-        
+
         return agent_state
 
     return train
-
-
-

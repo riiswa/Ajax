@@ -1,7 +1,5 @@
-import functools
-import os
 from collections.abc import Sequence
-from typing import Any, Callable, Optional
+from typing import Optional
 
 import jax
 import jax.numpy as jnp
@@ -16,14 +14,9 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging.wandb_logging import LoggingConfig, with_wandb_silent
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import EnvType
-from ajax.logging.wandb_logging import with_wandb_silent
-
-
-
-
 
 
 class SAC:
@@ -121,7 +114,6 @@ class SAC:
             num_envs=num_envs,
         )
 
-    
     @with_wandb_silent
     def train(
         self,
@@ -150,11 +142,11 @@ class SAC:
                     id=run_id,
                     resume="never",
                     reinit=True,
-                    config=logging_config.config
+                    config=logging_config.config,
                 )
         else:
             run_ids = None
-        
+
         def set_key_and_train(seed, index):
             key = jax.random.PRNGKey(seed)
 
@@ -176,15 +168,15 @@ class SAC:
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        agent_state = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        jax.vmap(set_key_and_train, in_axes=0)(seed, index)
 
 
 if __name__ == "__main__":
-    logging_config = LoggingConfig("SAC_test_vmap", "test", config={"debug":False})
+    logging_config = LoggingConfig("SAC_test_vmap", "test", config={"debug": False})
     env_id = "halfcheetah"
     sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
     sac_agent.train(
-            seed=list(range(40)),
-            num_timesteps=int(1e6),
-            logging_config=logging_config,
+        seed=list(range(40)),
+        num_timesteps=int(1e6),
+        logging_config=logging_config,
     )

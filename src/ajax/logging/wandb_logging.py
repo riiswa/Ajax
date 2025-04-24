@@ -1,9 +1,9 @@
 """Helpers for weights&biases logging"""
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, Callable
-import os
 import functools
+import os
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import wandb
 
@@ -66,6 +66,7 @@ def vmap_log(
         reinit=True,
     )
     run.log(log_metrics)
+
 
 def safe_get_env_var(var_name: str, default: str = "") -> str:
     """
