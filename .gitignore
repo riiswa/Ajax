@@ -173,3 +173,7 @@ models
 
 
 *.prof
+
+
+tensorboard
+*.DS_Store

@@ -1,3 +1,4 @@
+import gc
 import os
 from collections.abc import Sequence
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -15,6 +16,7 @@ from ajax.environments.interaction import (
     collect_experience,
     get_pi,
     init_collector_state,
+    should_use_uniform_sampling,
 )
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.evaluate import evaluate
@@ -32,6 +34,12 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import BufferType
+
+PROFILER_PATH = "./tensorboard"
+
+
+def get_alpha_from_params(params: FrozenDict) -> float:
+    return jnp.exp(params["log_alpha"])
 
 
 def create_alpha_train_state(
@@ -52,7 +60,7 @@ def create_alpha_train_state(
     params = FrozenDict({"log_alpha": log_alpha})
     tx = get_adam_tx(learning_rate)
     return TrainState.create(
-        apply_fn=lambda params: jnp.exp(params["log_alpha"]),  # Optional
+        apply_fn=get_alpha_from_params,  # Optional
         params=params,
         tx=tx,
     )
@@ -171,13 +179,13 @@ def value_loss_function(
     q_preds = predict_value(
         critic_state=critic_states,
         critic_params=critic_params,
-        x=jnp.concatenate([observations, actions], axis=-1),
+        x=jnp.concatenate((observations, actions), axis=-1),
     )
     # Target Q-values using target networks
     q_targets = predict_value(
         critic_state=critic_states,
         critic_params=critic_states.target_params,
-        x=jnp.concatenate([next_observations, next_actions], axis=-1),
+        x=jnp.concatenate((next_observations, next_actions), axis=-1),
     )
 
     # Unpack and unsqueeze if needed
@@ -256,7 +264,7 @@ def policy_loss_function(
     q_preds = predict_value(
         critic_state=critic_states,
         critic_params=critic_states.params,
-        x=jnp.hstack([observations, actions]),
+        x=jnp.hstack((observations, actions)),
     )
 
     # Unpack and unsqueeze if needed
@@ -535,10 +543,6 @@ def update_agent(
     agent_state = agent_state.replace(rng=rng)
 
     # Update Q functions
-    @partial(
-        jax.jit,
-        donate_argnums=0,
-    )
     def critic_update_step(carry, _):
         agent_state = carry
         agent_state, aux_value = update_value_functions(
@@ -587,7 +591,6 @@ def update_agent(
     return agent_state, None
 
 
-@jax.named_call
 @partial(
     jax.jit,
     static_argnames=[
@@ -597,7 +600,7 @@ def update_agent(
         "buffer",
         "log_frequency",
         "num_episode_test",
-        "test_fn",
+        "log_fn",
         "log",
         "verbose",
     ],
@@ -641,12 +644,7 @@ def training_iteration(
     # collector_state = agent_state.collector_state
 
     timestep = agent_state.collector_state.timestep
-    uniform = jax.lax.cond(
-        timestep < agent_args.learning_starts,
-        lambda _: True,
-        lambda _: False,
-        operand=None,
-    )
+    uniform = should_use_uniform_sampling(timestep, agent_args.learning_starts)
 
     collect_scan_fn = partial(
         collect_experience,
@@ -694,14 +692,15 @@ def training_iteration(
             lstm_hidden_size=lstm_hidden_size,
         )
 
-        metrics_to_log = {
-            "timestep": timestep,
-            "Eval/episodic mean reward": eval_rewards,
-            "Eval/episodic entropy": eval_entropy,
-        }
         if log:
+            metrics_to_log = {
+                "timestep": timestep,
+                "Eval/episodic mean reward": eval_rewards,
+                "Eval/episodic entropy": eval_entropy,
+            }
             jax.debug.callback(log_fn, metrics_to_log, index)
-        # jax.debug.callback(log_variables, metrics_to_log)
+            jax.clear_caches()
+
         if verbose:
             jax.debug.print(
                 (
@@ -721,7 +720,15 @@ def training_iteration(
     agent_state = jax.lax.cond(
         (timestep % log_frequency) == 0, run_and_log, no_op, agent_state, index
     )
+
+    jax.clear_caches()
+    gc.collect()
     return agent_state, None
+
+
+def profile_memory(timestep):
+    jax.debug.print("ça profile là")
+    jax.profiler.save_device_memory_profile(f"memory{timestep}.prof")
 
 
 def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[str]:
@@ -771,11 +778,9 @@ def make_train(
     """
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
-    if log:
-        log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
-    else:
-        log_fn = None
+    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
+    # @trace_profiler(base_path=PROFILER_PATH)
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         agent_state = init_sac(
@@ -810,6 +815,7 @@ def make_train(
             xs=None,
             length=num_updates,
         )
+
         return agent_state
 
     return train
