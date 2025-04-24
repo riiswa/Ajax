@@ -176,7 +176,7 @@ if __name__ == "__main__":
     env_id = "halfcheetah"
     sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
     sac_agent.train(
-        seed=list(range(40)),
+        seed=list(range(50)),
         num_timesteps=int(1e6),
         logging_config=logging_config,
     )

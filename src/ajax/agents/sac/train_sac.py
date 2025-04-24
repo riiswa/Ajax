@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
@@ -40,6 +41,36 @@ PROFILER_PATH = "./tensorboard"
 
 def get_alpha_from_params(params: FrozenDict) -> float:
     return jnp.exp(params["log_alpha"])
+
+
+@struct.dataclass
+class TemperatureAuxiliaries:
+    alpha_loss: jax.Array
+    alpha: jax.Array
+    log_alpha: jax.Array
+
+
+@struct.dataclass
+class PolicyAuxiliaries:
+    policy_loss: jax.Array
+    log_pi: jax.Array
+    q_min: jax.Array
+
+
+@struct.dataclass
+class ValueAuxiliaries:
+    critic_loss: jax.Array
+    q1_pred: jax.Array
+    q2_pred: jax.Array
+    target_q: jax.Array
+    log_probs: jax.Array
+
+
+@struct.dataclass
+class AuxiliaryLogs:
+    temperature: TemperatureAuxiliaries
+    policy: PolicyAuxiliaries
+    value: ValueAuxiliaries
 
 
 def create_alpha_train_state(
@@ -138,7 +169,7 @@ def value_loss_function(
     alpha: jax.Array,
     recurrent: bool,
     reward_scale: float = 5.0,  # Add reward scaling factor here
-) -> Tuple[jax.Array, Dict[str, jax.Array]]:
+) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
 
@@ -209,15 +240,13 @@ def value_loss_function(
     loss_q2 = jnp.mean((q2_pred - target_q) ** 2)
     total_loss = loss_q1 + loss_q2
 
-    aux = {
-        "critic_loss": total_loss,
-        "q1_pred": q1_pred.mean(),
-        "q2_pred": q2_pred.mean(),
-        "target_q": target_q.mean(),
-        "log_probs": log_probs,
-    }
-
-    return total_loss, aux
+    return total_loss, ValueAuxiliaries(
+        critic_loss=total_loss,
+        q1_pred=q1_pred.mean().flatten(),
+        q2_pred=q2_pred.mean().flatten(),
+        target_q=target_q.mean().flatten(),
+        log_probs=log_probs.mean().flatten(),
+    )
 
 
 @partial(
@@ -233,7 +262,7 @@ def policy_loss_function(
     recurrent: bool,
     alpha: jax.Array,
     rng: jax.random.PRNGKey,
-) -> Tuple[jax.Array, Dict[str, jax.Array]]:
+) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
 
@@ -276,11 +305,9 @@ def policy_loss_function(
     assert log_probs.shape == q_min.shape, f"{log_probs.shape} != {q_min.shape}"
     loss = (alpha * log_probs - q_min).mean()
 
-    return loss, {
-        "policy_loss": loss,
-        "log_pi": log_probs.mean(),
-        "q_min": q_min.mean(),
-    }
+    return loss, PolicyAuxiliaries(
+        policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
+    )
 
 
 @partial(
@@ -291,7 +318,7 @@ def alpha_loss_function(
     log_alpha_params: FrozenDict,
     corrected_log_probs: jax.Array,
     target_entropy: float,
-) -> Tuple[jax.Array, Dict[str, Any]]:
+) -> Tuple[jax.Array, TemperatureAuxiliaries]:
     """
     Compute the loss for the temperature parameter (alpha).
 
@@ -308,11 +335,9 @@ def alpha_loss_function(
 
     loss = (alpha * jax.lax.stop_gradient(-corrected_log_probs - target_entropy)).mean()
 
-    return loss, {
-        "alpha_loss": loss,
-        "alpha": alpha,
-        "log_alpha": log_alpha,
-    }
+    return loss, TemperatureAuxiliaries(
+        alpha_loss=loss, alpha=alpha, log_alpha=log_alpha
+    )
 
 
 @partial(
@@ -471,7 +496,7 @@ def update_temperature(
         rng=rng,
         alpha=new_alpha_state,
     )
-    return agent_state, aux
+    return agent_state, jax.lax.stop_gradient(aux)
 
 
 @partial(
@@ -513,7 +538,7 @@ def update_agent(
     num_critic_updates: int = 1,
     target_update_frequency: int = 1,
     reward_scale: float = 5.0,
-) -> Tuple[SACState, None]:
+) -> Tuple[SACState, AuxiliaryLogs]:
     """
     Update the SAC agent, including critic, actor, and temperature updates.
 
@@ -587,8 +612,38 @@ def update_agent(
     # Update target networks
     # TODO : Only update every update_target_network steps
     agent_state = update_target_networks(agent_state, tau=tau)
+    aux = AuxiliaryLogs(
+        temperature=aux_temperature,
+        policy=aux_policy,
+        value=ValueAuxiliaries(
+            **{key: val.flatten() for key, val in to_state_dict(aux_value).items()}
+        ),
+    )
+    return agent_state, aux
 
-    return agent_state, None
+
+def flatten_dict(dict: Dict) -> Dict:
+    return_dict = {}
+    for key, val in dict.items():
+        if isinstance(val, Dict):
+            for subkey, subval in val.items():
+                return_dict[f"{key}/{subkey}"] = subval
+        else:
+            return_dict[key] = val
+    return return_dict
+
+
+def no_op(agent_state, index):
+    return agent_state
+
+
+def no_op_none(agent_state, index):
+    pass
+
+
+def prepare_metrics(aux):
+    log_metrics = flatten_dict(to_state_dict(aux))
+    return {key: val for (key, val) in log_metrics.items() if not (jnp.isnan(val))}
 
 
 @partial(
@@ -615,7 +670,7 @@ def training_iteration(
     agent_args: SACConfig,
     action_dim: int,
     lstm_hidden_size: Optional[int] = None,
-    log_frequency: int = 5000,
+    log_frequency: int = 100,
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
@@ -667,13 +722,36 @@ def training_iteration(
             tau=agent_args.tau,
             reward_scale=agent_args.reward_scale,
         )
-        agent_state, _ = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=1)
-        return agent_state
+        agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=1)
+        aux = aux.replace(
+            value=ValueAuxiliaries(
+                **{key: val.flatten() for key, val in to_state_dict(aux.value).items()}
+            )
+        )
+        return agent_state, aux
+
+    from dataclasses import fields
+
+    def fill_with_nan(dataclass):
+        """
+        Recursively fills all fields of a dataclass with jnp.nan.
+        """
+        nan = jnp.ones(1) * jnp.nan
+        dict = {}
+        for field in fields(dataclass):
+            sub_dataclass = field.type
+            if hasattr(
+                sub_dataclass, "__dataclass_fields__"
+            ):  # Check if the field is another dataclass
+                dict[field.name] = fill_with_nan(sub_dataclass)
+            else:
+                dict[field.name] = nan
+        return dataclass(**dict)
 
     def skip_update(agent_state):
-        return agent_state
+        return agent_state, fill_with_nan(AuxiliaryLogs)
 
-    agent_state = jax.lax.cond(
+    agent_state, aux = jax.lax.cond(
         timestep >= agent_args.learning_starts,
         do_update,
         skip_update,
@@ -714,12 +792,18 @@ def training_iteration(
 
         return agent_state.replace(rng=rng)
 
-    def no_op(agent_state, index):
-        return agent_state
-
     agent_state = jax.lax.cond(
         (timestep % log_frequency) == 0, run_and_log, no_op, agent_state, index
     )
+
+    def prepare_and_log(aux, index):
+        filtered_metrics = prepare_metrics(aux)
+        log_fn(filtered_metrics, index)
+
+    def log_aux(aux, index):
+        jax.debug.callback(prepare_and_log, aux, index)
+
+    jax.lax.cond((timestep % log_frequency) == 0, log_aux, no_op_none, aux, index)
 
     jax.clear_caches()
     gc.collect()
