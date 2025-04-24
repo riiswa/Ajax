@@ -19,45 +19,11 @@ from ajax.environments.utils import (
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import EnvType
-import objgraph
-from memory_profiler import profile
-import tracemalloc
+from ajax.logging.wandb_logging import with_wandb_silent
 
 
 
-def safe_get_env_var(var_name: str, default: str = "") -> str:
-    """
-    Safely retrieve an environment variable.
 
-    Args:
-        var_name (str): The name of the environment variable.
-        default (Optional[str]): Default value if the variable is not set.
-
-    Returns:
-        Optional[str]: The value of the environment variable or default.
-    """
-    value = os.environ.get(var_name)
-    if value is None:
-        return default
-    return value
-
-
-def with_wandb_silent(func: Callable) -> Callable:
-    """
-    Decorator to temporarily set WANDB_SILENT to true during a function's execution,
-    restoring it afterward.
-    """
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs) -> Any:
-        initial_wandb_silent = safe_get_env_var("WANDB_SILENT")
-        try:
-            os.environ["WANDB_SILENT"] = "true"
-            return func(*args, **kwargs)
-        finally:
-            os.environ["WANDB_SILENT"] = initial_wandb_silent
-
-    return wrapper
 
 
 class SAC:
@@ -184,6 +150,7 @@ class SAC:
                     id=run_id,
                     resume="never",
                     reinit=True,
+                    config=logging_config.config
                 )
         else:
             run_ids = None
@@ -211,13 +178,10 @@ class SAC:
         seed = jnp.array(seed)
         agent_state = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
 
-        # jax.profiler.save_device_memory_profile("memory.prof")
-
 
 if __name__ == "__main__":
-    logging_config = LoggingConfig("SAC_test_vmap", "test", config={})
+    logging_config = LoggingConfig("SAC_test_vmap", "test", config={"debug":False})
     env_id = "halfcheetah"
-    jax.config.update("jax_disable_jit", False)
     sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
     sac_agent.train(
             seed=list(range(40)),

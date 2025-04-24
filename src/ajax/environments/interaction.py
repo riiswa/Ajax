@@ -319,3 +319,31 @@ def _select_uniform_action(uniform_action, _):
 @jax.jit
 def _select_policy_action(_, action):
     return action
+
+@jax.jit
+def _return_true(_):
+    return True
+
+
+@jax.jit
+def _return_false(_):
+    return False
+
+
+@jax.jit
+def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> bool:
+    """Check if we should use uniform sampling based on timestep and learning starts.
+
+    Args:
+        timestep: Current timestep
+        learning_starts: Number of timesteps before learning starts
+
+    Returns:
+        bool: Whether to use uniform sampling
+    """
+    return jax.lax.cond(
+        timestep < learning_starts,
+        _return_true,
+        _return_false,
+        operand=None,
+    )

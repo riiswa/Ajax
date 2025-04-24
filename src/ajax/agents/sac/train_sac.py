@@ -15,6 +15,7 @@ from ajax.environments.interaction import (
     collect_experience,
     get_pi,
     init_collector_state,
+    should_use_uniform_sampling
 )
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.evaluate import evaluate
@@ -824,30 +825,4 @@ def make_train(
     return train
 
 
-@jax.jit
-def _return_true(_):
-    return True
 
-
-@jax.jit
-def _return_false(_):
-    return False
-
-
-@jax.jit
-def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> bool:
-    """Check if we should use uniform sampling based on timestep and learning starts.
-
-    Args:
-        timestep: Current timestep
-        learning_starts: Number of timesteps before learning starts
-
-    Returns:
-        bool: Whether to use uniform sampling
-    """
-    return jax.lax.cond(
-        timestep < learning_starts,
-        _return_true,
-        _return_false,
-        operand=None,
-    )

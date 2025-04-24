@@ -97,3 +97,4 @@ class SquashedNormal(distrax.Normal):
         ), "Shape mismatch between squashed action and corrected log probability."
 
         return squashed_action, corrected_log_prob
+

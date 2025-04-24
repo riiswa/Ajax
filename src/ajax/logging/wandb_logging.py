@@ -1,7 +1,9 @@
 """Helpers for weights&biases logging"""
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Callable
+import os
+import functools
 
 import wandb
 
@@ -64,3 +66,37 @@ def vmap_log(
         reinit=True,
     )
     run.log(log_metrics)
+
+def safe_get_env_var(var_name: str, default: str = "") -> str:
+    """
+    Safely retrieve an environment variable.
+
+    Args:
+        var_name (str): The name of the environment variable.
+        default (Optional[str]): Default value if the variable is not set.
+
+    Returns:
+        Optional[str]: The value of the environment variable or default.
+    """
+    value = os.environ.get(var_name)
+    if value is None:
+        return default
+    return value
+
+
+def with_wandb_silent(func: Callable) -> Callable:
+    """
+    Decorator to temporarily set WANDB_SILENT to true during a function's execution,
+    restoring it afterward.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs) -> Any:
+        initial_wandb_silent = safe_get_env_var("WANDB_SILENT")
+        try:
+            os.environ["WANDB_SILENT"] = "true"
+            return func(*args, **kwargs)
+        finally:
+            os.environ["WANDB_SILENT"] = initial_wandb_silent
+
+    return wrapper
