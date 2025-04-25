@@ -268,7 +268,7 @@ def collect_experience(
             "obs": agent_state.collector_state.last_obs,
             "action": action,  # if action.ndim == 2 else action[:, None]
             "reward": reward[:, None],
-            "done": agent_state.collector_state.last_done[:, None],
+            "done": done[:, None],
             "next_obs": obsv,
         },
     )

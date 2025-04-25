@@ -236,8 +236,8 @@ def value_loss_function(
     assert min_q_target.shape == log_probs.shape
     # total_loss = jnp.square(q_preds - target_q[None, ...]).mean()
 
-    loss_q1 = jnp.mean((q1_pred.squeeze(0) - target_q) ** 2)
-    loss_q2 = jnp.mean((q2_pred.squeeze(0) - target_q) ** 2)
+    loss_q1 = 0.5 * jnp.mean((q1_pred.squeeze(0) - target_q) ** 2)
+    loss_q2 = 0.5 * jnp.mean((q2_pred.squeeze(0) - target_q) ** 2)
     total_loss = loss_q1 + loss_q2
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
@@ -332,7 +332,10 @@ def alpha_loss_function(
     log_alpha = log_alpha_params["log_alpha"]
     alpha = jnp.exp(log_alpha)
 
-    loss = (alpha * jax.lax.stop_gradient(-corrected_log_probs - target_entropy)).mean()
+    loss = (
+        -1.0
+        * (alpha * jax.lax.stop_gradient(corrected_log_probs + target_entropy)).mean()
+    )
 
     return loss, TemperatureAuxiliaries(
         alpha_loss=loss, alpha=alpha, log_alpha=log_alpha
