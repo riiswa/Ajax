@@ -239,7 +239,6 @@ def value_loss_function(
     loss_q1 = jnp.mean((q1_pred.squeeze(0) - target_q) ** 2)
     loss_q2 = jnp.mean((q2_pred.squeeze(0) - target_q) ** 2)
     total_loss = loss_q1 + loss_q2
-
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
         q1_pred=q1_pred.mean().flatten(),
@@ -670,7 +669,7 @@ def training_iteration(
     agent_args: SACConfig,
     action_dim: int,
     lstm_hidden_size: Optional[int] = None,
-    log_frequency: int = 5000,
+    log_frequency: int = 1000,
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
@@ -790,10 +789,6 @@ def training_iteration(
 
         return agent_state.replace(rng=rng)
 
-    agent_state = jax.lax.cond(
-        (timestep % log_frequency) == 0, run_and_log, no_op, agent_state, index
-    )
-
     def prepare_and_log(aux, index, timestep):
         filtered_metrics = prepare_metrics(aux)
         filtered_metrics["timestep"] = timestep
@@ -802,9 +797,13 @@ def training_iteration(
     def log_aux(aux, index, timestep):
         jax.debug.callback(prepare_and_log, aux, index, timestep)
 
-    jax.lax.cond(
-        (timestep % log_frequency) == 0, log_aux, no_op_none, aux, index, timestep
-    )
+    if log:
+        agent_state = jax.lax.cond(
+            (timestep % log_frequency) == 0, run_and_log, no_op, agent_state, index
+        )
+        jax.lax.cond(
+            (timestep % log_frequency) == 0, log_aux, no_op_none, aux, index, timestep
+        )
 
     jax.clear_caches()
     gc.collect()
@@ -891,6 +890,9 @@ def make_train(
             log_fn=log_fn,
             index=index,
             log=log,
+            log_frequency=(
+                logging_config.log_frequency if logging_config is not None else None
+            ),
         )
 
         agent_state, _ = jax.lax.scan(

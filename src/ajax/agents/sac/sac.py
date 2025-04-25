@@ -31,7 +31,7 @@ class SAC:
         critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = None,
+        max_grad_norm: Optional[float] = 0.5,
         buffer_size: int = int(1e6),
         batch_size: int = 256,
         learning_starts: int = int(1e4),
@@ -62,6 +62,7 @@ class SAC:
             target_entropy_per_dim (float): Target entropy per action dimension.
             lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
+        self.config = {**locals()}
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
@@ -134,6 +135,7 @@ class SAC:
             seed = [seed]
 
         if logging_config is not None:
+            logging_config.config.update(self.config)
             run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
             for index, run_id in enumerate(run_ids):
                 wandb.init(
@@ -176,7 +178,7 @@ if __name__ == "__main__":
     env_id = "halfcheetah"
     sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
     sac_agent.train(
-        seed=list(range(50)),
+        seed=list(range(1)),
         num_timesteps=int(1e6),
         logging_config=logging_config,
     )

@@ -15,6 +15,7 @@ class LoggingConfig:
     project_name: str
     run_name: str
     config: dict
+    log_frequency: int = 1000
     mode: str = "online"
     group_name: Optional[str] = None
 

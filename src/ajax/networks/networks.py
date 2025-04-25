@@ -100,7 +100,7 @@ class Critic(nn.Module):
         self.model = nn.Dense(
             1,
             kernel_init=uniform_init(3e-3),
-            bias_init=uniform_init(3e-3),
+            bias_init=constant(0.1),
         )
 
     def __call__(self, x: jax.Array) -> jax.Array:

@@ -224,7 +224,7 @@ def collect_experience(
     """
     rng, uniform_key = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
-    action, agent_state = get_action_and_new_agent_state(
+    agent_action, agent_state = get_action_and_new_agent_state(
         agent_state,
         agent_state.collector_state.last_obs,
         agent_state.collector_state.last_done,
@@ -232,11 +232,12 @@ def collect_experience(
     )
     uniform_action = jax.random.uniform(
         uniform_key,
-        shape=action.shape,
+        shape=agent_action.shape,
         minval=-1.0,
         maxval=1.0,
     )
-    assert_shape(uniform_action, action.shape)
+
+    assert_shape(uniform_action, agent_action.shape)
 
     # Use jax.lax.cond to choose between uniform sampling and policy sampling
     action = jax.lax.cond(
@@ -244,7 +245,7 @@ def collect_experience(
         _select_uniform_action,
         _select_policy_action,
         uniform_action,
-        action,
+        agent_action,
     )
 
     rng, step_key = jax.random.split(agent_state.rng)
@@ -281,7 +282,6 @@ def collect_experience(
         last_done=done,
     )
     agent_state = agent_state.replace(collector_state=new_collector_state)
-
     return agent_state, None
 
 
