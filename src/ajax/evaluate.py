@@ -54,9 +54,10 @@ def evaluate(
             done,
             recurrent,
         )
-        action = pi.mean()
 
-        return action, pi.entropy()
+        action = pi.mean()
+        entropy = pi.entropy()
+        return action, entropy
 
     obs, state = reset_env(reset_keys, env, mode, env_params)
     done = jnp.zeros(num_episodes, dtype=jnp.int8)

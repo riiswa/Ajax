@@ -78,7 +78,7 @@ def step_env(
             in_axes=(0, 0, 0, None),
         )(rng, state, action, env_params)
         done = jnp.float_(done)
-    else:  # ✅ no vmap for brax
+    elif mode == "brax":  # ✅ no vmap for brax
         env_state = env.step(state, action)
         obsv, reward, done, info = (
             env_state.obs,
@@ -86,6 +86,8 @@ def step_env(
             env_state.done,
             env_state.info,
         )
+    else:
+        raise ValueError(f"Unrecognized mode for step_env {mode}")
     return obsv, env_state, reward, done, info
 
 
@@ -268,7 +270,7 @@ def collect_experience(
             "obs": agent_state.collector_state.last_obs,
             "action": action,  # if action.ndim == 2 else action[:, None]
             "reward": reward[:, None],
-            "done": done[:, None],
+            "done": agent_state.collector_state.last_done[:, None],
             "next_obs": obsv,
         },
     )

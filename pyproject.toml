@@ -59,6 +59,10 @@ wandb = "^0.19.9"
 objgraph = "^3.6.2"
 memory-profiler = "^0.61.0"
 
+
+[tool.poetry.group.baseline_comparison.dependencies]
+stable-baselines3 = "<2.6"
+
 [[tool.poetry.source]]
 name = "pypi"
 priority = "primary"

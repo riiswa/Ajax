@@ -174,7 +174,7 @@ class SAC:
 
 
 if __name__ == "__main__":
-    logging_config = LoggingConfig("SAC_test_vmap_3", "test", config={"debug": False})
+    logging_config = LoggingConfig("match_SAC", "test", config={"debug": False})
     env_id = "halfcheetah"
     sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
     sac_agent.train(

@@ -291,8 +291,8 @@ def test_predict_value(real_env_config, actor_architecture, critic_architecture)
     observation_shape, action_shape = get_state_action_shapes(
         real_env_config.env, real_env_config.env_params
     )
-    init_obs = jnp.zeros((real_env_config.num_envs, *observation_shape))
-    init_action = jnp.zeros((real_env_config.num_envs, *action_shape))
+    init_obs = jnp.ones((real_env_config.num_envs, *observation_shape))
+    init_action = jnp.ones((real_env_config.num_envs, *action_shape))
     input_data = jnp.hstack([init_obs, init_action])
 
     # Predict value using the critic

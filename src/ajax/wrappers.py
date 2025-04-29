@@ -7,8 +7,11 @@ import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
+from brax.envs import Env as BraxEnv
 from brax.envs.base import State
 from flax import struct
+from gymnasium import core
+from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
 
 
@@ -586,3 +589,85 @@ def get_wrappers(mode: str = "gymnax"):
     if mode == "gymnax":
         return ClipAction, NormalizeVecObservation, NormalizeVecReward
     return ClipActionBrax, NormalizeVecObservationBrax, NormalizeVecRewardBrax
+
+
+def check_wrapped_env_has_autoreset(wrapped_env: BraxWrapper):
+    if "AutoResetWrapper" in wrapped_env.__repr__():
+        return True
+    while "env" in dir(wrapped_env):
+        return check_wrapped_env_has_autoreset(wrapped_env.env)
+    return False
+
+
+class BraxToGymnasium(BraxWrapper):
+    def __init__(self, env: BraxEnv, seed: Optional[int] = None):
+        super().__init__(env)
+        assert not check_wrapped_env_has_autoreset(
+            env
+        ), "Environment should not autoreset"
+        self._env = env
+        env_name = str(env.unwrapped.__class__).split(".")[-1][:-2]
+        self.metadata = {
+            "name": env_name,
+            "render_modes": ["human", "rgb_array"] if hasattr(env, "render") else [],
+        }
+
+        self.rng: chex.PRNGKey = jax.random.PRNGKey(0)  # Placeholder
+        self._seed(seed)
+
+    @property
+    def action_space(self):
+        """Dynamically adjust action space depending on params."""
+        return gymnasium_spaces.Box(
+            low=-1,
+            high=1,
+            shape=(self._env.action_size,),
+        )
+
+    @property
+    def observation_space(self):
+        """Dynamically adjust state space depending on params."""
+        return gymnasium_spaces.Box(
+            low=-jnp.inf, high=jnp.inf, shape=(self._env.observation_size,)
+        )
+
+    def _seed(self, seed: Optional[int] = None):
+        """Set RNG seed (or use 0)."""
+        self.rng = jax.random.PRNGKey(seed or 0)
+
+    def step(
+        self, action: core.ActType
+    ) -> Tuple[core.ObsType, float, bool, bool, Dict[Any, Any]]:
+        """Step environment, follow new step API."""
+        self.env_state = self._env.step(self.env_state, action)  # type: ignore[has-type]
+        obsv, reward, done, info = (
+            self.env_state.obs,
+            self.env_state.reward,
+            self.env_state.done,
+            self.env_state.info,
+        )
+        return (
+            obsv,
+            float(reward.item()),
+            bool(done.item()),
+            bool(done.item()),
+            info,
+        )
+
+    def reset(
+        self,
+        *,
+        seed: Optional[int] = None,
+        return_info: bool = False,
+        options: Optional[Any] = None,  # dict
+    ) -> Tuple[core.ObsType, Any]:  # dict]:
+        """Reset environment, update parameters and seed if provided."""
+        if seed is not None:
+            self._seed(seed)
+        self.rng, reset_key = jax.random.split(self.rng)
+        self.env_state = self._env.reset(reset_key)
+        return self.env_state.obs, {}
+
+    def render(self, mode="human") -> None:
+        """use underlying environment rendering if it exists, otherwise return None."""
+        raise NotImplementedError

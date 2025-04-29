@@ -334,7 +334,9 @@ def alpha_loss_function(
 
     loss = (
         -1.0
-        * (alpha * jax.lax.stop_gradient(corrected_log_probs + target_entropy)).mean()
+        * (
+            log_alpha * jax.lax.stop_gradient(corrected_log_probs + target_entropy)
+        ).mean()
     )
 
     return loss, TemperatureAuxiliaries(

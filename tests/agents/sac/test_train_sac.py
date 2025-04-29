@@ -149,7 +149,7 @@ def test_value_loss_function(env_config, sac_state):
         recurrent=False,
         reward_scale=1.0,
     )
-
+    aux = to_state_dict(aux)
     # Validate the outputs
     assert jnp.isfinite(loss), "Loss contains invalid values."
     assert "critic_loss" in aux, "Auxiliary outputs are missing 'critic_loss'."
@@ -229,7 +229,7 @@ def test_policy_loss_function(env_config, sac_state):
         alpha=alpha,
         rng=rng,
     )
-
+    aux = to_state_dict(aux)
     # Validate the outputs
     assert jnp.isfinite(loss), "Loss contains invalid values."
     assert "policy_loss" in aux, "Auxiliary outputs are missing 'policy_loss'."
@@ -293,7 +293,7 @@ def test_alpha_loss_function(log_alpha_init, target_entropy, corrected_log_probs
         corrected_log_probs=corrected_log_probs,
         target_entropy=target_entropy,
     )
-
+    aux = to_state_dict(aux)
     # Validate the outputs
     assert jnp.isfinite(loss), "Loss contains invalid values."
     assert "alpha_loss" in aux, "Auxiliary outputs are missing 'alpha_loss'."
@@ -389,7 +389,7 @@ def test_update_value_functions(env_config, sac_state):
         gamma=gamma,
         reward_scale=reward_scale,
     )
-
+    aux = to_state_dict(aux)
     # Validate that only critic_state.params has changed
     assert not compare_frozen_dicts(
         updated_state.critic_state.params, sac_state.critic_state.params
@@ -425,7 +425,7 @@ def test_update_policy(env_config, sac_state):
         agent_state=sac_state,
         recurrent=False,
     )
-
+    aux = to_state_dict(aux)
     # Validate that only actor_state.params has changed
     assert not compare_frozen_dicts(
         updated_state.actor_state.params, original_actor_params
@@ -460,7 +460,7 @@ def test_update_temperature(env_config, sac_state):
         target_entropy=target_entropy,
         recurrent=False,
     )
-
+    aux = to_state_dict(aux)
     # Validate that only alpha.params has changed
     assert not compare_frozen_dicts(
         updated_state.alpha.params, original_alpha_params
