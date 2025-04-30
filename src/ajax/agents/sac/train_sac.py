@@ -773,11 +773,68 @@ def training_iteration(
         )
 
         if log:
+            current_index = agent_state.collector_state.buffer_state.current_index
+            # Compute the starting index for slicing
+            start_idx = current_index - log_frequency
+            # jax.debug.print(
+            #     "{x} {y} {z} {a}",
+            #     x=start_idx,
+            #     y=current_index,
+            #     z=log_frequency,
+            #     a=start_idx >= 0,
+            # )
+            # Perform dynamic slicing
+            # Shape of result will be [num_envs, log_frequency]
+            reward_buffer = agent_state.collector_state.buffer_state.experience[
+                "reward"
+            ]
+            done_buffer = agent_state.collector_state.buffer_state.experience["done"]
+            previous_rollout_rewards = jax.lax.dynamic_slice(
+                reward_buffer,
+                start_indices=(0, start_idx, 0),
+                slice_sizes=(reward_buffer.shape[0], log_frequency, 1),
+            ).squeeze(0)
+
+            previous_rollout_dones = jax.lax.dynamic_slice(
+                done_buffer,
+                start_indices=(0, start_idx, 0),
+                slice_sizes=(done_buffer.shape[0], log_frequency, 1),
+            ).squeeze(0)
+
+            def masked_cumsum_include_done(rewards, dones):
+                """
+                rewards: shape [T]
+                dones:   shape [T] (values 0 or 1)
+                Returns a cumsum that resets *after* including the reward at done==1
+                """
+
+                def step(carry, inputs):
+                    running_sum = carry
+                    reward, done = inputs
+                    new_sum = reward + running_sum
+                    next_carry = new_sum * (1.0 - done)
+                    # * (
+                    #     1.0 - done
+                    # )  # reset AFTER including reward at done==1
+                    return next_carry, new_sum
+
+                init = jnp.zeros_like(rewards[0])
+                _, out = jax.lax.scan(step, init=init, xs=(rewards, dones))
+                return out
+
+            episodic_mean_reward = jnp.mean(
+                masked_cumsum_include_done(
+                    previous_rollout_rewards, previous_rollout_dones
+                ),
+                where=previous_rollout_dones,
+            )
             metrics_to_log = {
                 "timestep": timestep,
                 "Eval/episodic mean reward": eval_rewards,
                 "Eval/episodic entropy": eval_entropy,
+                "Train/episodic mean reward": episodic_mean_reward,
             }
+
             jax.debug.callback(log_fn, metrics_to_log, index)
             jax.clear_caches()
 
@@ -803,12 +860,9 @@ def training_iteration(
         jax.debug.callback(prepare_and_log, aux, index, timestep)
 
     if log:
-        agent_state = jax.lax.cond(
-            (timestep % log_frequency) == 0, run_and_log, no_op, agent_state, index
-        )
-        jax.lax.cond(
-            (timestep % log_frequency) == 0, log_aux, no_op_none, aux, index, timestep
-        )
+        flag = jnp.logical_and((timestep % log_frequency) == 1, timestep > 1)
+        agent_state = jax.lax.cond(flag, run_and_log, no_op, agent_state, index)
+        jax.lax.cond(flag, log_aux, no_op_none, aux, index, timestep)
 
     jax.clear_caches()
     gc.collect()

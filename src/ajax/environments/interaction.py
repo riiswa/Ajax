@@ -263,7 +263,7 @@ def collect_experience(
         mode,
         env_args.env_params,
     )
-
+    # jax.debug.print("{x} {y}", x=done, y=agent_state.collector_state.last_done)
     buffer_state = buffer.add(
         agent_state.collector_state.buffer_state,
         {
@@ -271,6 +271,7 @@ def collect_experience(
             "action": action,  # if action.ndim == 2 else action[:, None]
             "reward": reward[:, None],
             "done": agent_state.collector_state.last_done[:, None],
+            # "done": agent_state.collector_state.last_done[:, None],
             "next_obs": obsv,
         },
     )
@@ -284,6 +285,12 @@ def collect_experience(
         last_done=done,
     )
     agent_state = agent_state.replace(collector_state=new_collector_state)
+    # jax.lax.cond(
+    #     jnp.squeeze(done),
+    #     lambda _: jax.debug.print("collect {x} {y}", x=done, y=obsv),
+    #     lambda _: None,
+    #     operand=None,
+    # )
     return agent_state, None
 
 

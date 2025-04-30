@@ -10,7 +10,7 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_env_type,
 )
-from ajax.wrappers import get_wrappers
+from ajax.wrappers import AutoResetWrapper, get_wrappers
 
 
 def build_env_from_id(
@@ -21,8 +21,16 @@ def build_env_from_id(
     if env_id in gymnax.registered_envs:
         env, env_params = gymnax.make(env_id)
         return env, env_params
+
     if env_id in list(brax.envs._envs.keys()):
-        return brax.envs.create(env_id, batch_size=num_envs, **kwargs), None
+        return (
+            AutoResetWrapper(
+                brax.envs.create(
+                    env_id, batch_size=num_envs, auto_reset=False, **kwargs
+                )
+            ),
+            None,
+        )
     raise ValueError(f"Environment {env_id} not found in gymnax or brax")
 
 

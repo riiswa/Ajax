@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from brax.envs import Env as BraxEnv
-from brax.envs.base import State
+from brax.envs.base import State, Wrapper
 from flax import struct
 from gymnasium import core
 from gymnasium import spaces as gymnasium_spaces
@@ -671,3 +671,57 @@ class BraxToGymnasium(BraxWrapper):
     def render(self, mode="human") -> None:
         """use underlying environment rendering if it exists, otherwise return None."""
         raise NotImplementedError
+
+
+class AutoResetWrapper(Wrapper):
+    """Automatically resets Brax envs that are done."""
+
+    def __init__(self, env: Wrapper):
+        super().__init__(env)
+        self.n_envs = env.reset(jax.random.PRNGKey(0)).obs.shape[0]
+        self.single_env = self.n_envs == 1
+
+    def reset(self, rng: jax.Array) -> State:
+        state = self.env.reset(rng)
+        state.info["first_pipeline_state"] = state.pipeline_state
+        state.info["first_obs"] = state.obs
+        state.info["rng"] = (
+            rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
+        )
+        return state
+
+    def step(self, state: State, action: jax.Array) -> State:
+        # Strip RNG before passing state to wrapped env
+        # rng = state.rng
+        rng = state.info["rng"][0]
+        rng, next_rng = jax.random.split(rng)
+        # state = self.env.step(state, action)
+        if "steps" in state.info:
+            steps = state.info["steps"]
+            steps = jnp.where(state.done, jnp.zeros_like(steps), steps)
+            state.info.update(steps=steps)
+        state.info["rng"] = (
+            rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
+        )
+        # jax.debug.print("{x} {y}", x=rng, y=state.info["rng"])
+        state = state.replace(done=jnp.zeros_like(state.done))
+        state = self.env.step(state, action)
+
+        def where_done(x, y):
+            done = state.done
+            if done.shape:
+                done = jnp.reshape(done, [x.shape[0]] + [1] * (len(x.shape) - 1))  # type: ignore
+            return jnp.where(done, x, y)
+
+        new_init_state = jax.lax.cond(
+            state.done.any(), lambda: self.reset(rng), lambda: state
+        )
+        # new_init_state = state
+        pipeline_state = jax.tree.map(
+            where_done,
+            new_init_state.info["first_pipeline_state"],
+            state.pipeline_state,
+        )
+        obs = where_done(new_init_state.info["first_obs"], state.obs)
+        state = state.replace(pipeline_state=pipeline_state, obs=obs)
+        return state
