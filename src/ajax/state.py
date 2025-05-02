@@ -68,6 +68,7 @@ class BaseAgentState:
     actor_state: LoadedTrainState
     critic_state: LoadedTrainState
     collector_state: CollectorState
+    eval_rng: jax.Array
 
 
 @struct.dataclass

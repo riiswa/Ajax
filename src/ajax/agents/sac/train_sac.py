@@ -1,3 +1,5 @@
+import gc
+import math
 import os
 from collections.abc import Sequence
 from dataclasses import fields
@@ -151,6 +153,7 @@ def init_sac(
 
     return SACState(
         rng=rng,
+        eval_rng=rng,
         actor_state=actor_state,
         critic_state=critic_state,
         alpha=alpha,
@@ -640,7 +643,12 @@ def flatten_dict(dict: Dict) -> Dict:
     return return_dict
 
 
-def no_op(agent_state, index):
+def prepare_metrics(aux):
+    log_metrics = flatten_dict(to_state_dict(aux))
+    return {key: val for (key, val) in log_metrics.items() if not (jnp.isnan(val))}
+
+
+def no_op(agent_state, *args):
     return agent_state
 
 
@@ -648,9 +656,77 @@ def no_op_none(agent_state, index, timestep):
     pass
 
 
-def prepare_metrics(aux):
-    log_metrics = flatten_dict(to_state_dict(aux))
-    return {key: val for (key, val) in log_metrics.items() if not (jnp.isnan(val))}
+@partial(
+    jax.jit,
+    static_argnames=["log_frequency", "chunk_size"],
+)
+def compute_episodic_mean_reward(agent_state, log_frequency, chunk_size=1000):
+    buffer_state = agent_state.collector_state.buffer_state
+    current_index = buffer_state.current_index
+    start_idx = current_index - log_frequency
+
+    reward_buffer = buffer_state.experience["reward"]  # [num_envs, T, 1]
+    done_buffer = buffer_state.experience["done"]  # [num_envs, T, 1]
+
+    num_envs = reward_buffer.shape[0]
+    num_chunks = math.ceil(log_frequency / chunk_size)
+
+    def masked_cumsum_include_done(rewards, dones):
+        def step(carry, inputs):
+            running_sum = carry
+            reward, done = inputs
+            new_sum = reward + running_sum
+            next_carry = new_sum * (1.0 - done)
+            return next_carry, new_sum
+
+        init = jnp.zeros_like(rewards[0])
+        _, out = jax.lax.scan(step, init=init, xs=(rewards, dones))
+        return out
+
+    def process_chunk(i, carry):
+        reward_sum, done_count = carry
+
+        chunk_start = start_idx + i * chunk_size
+        max_available = current_index - chunk_start
+        mask_len = jnp.minimum(chunk_size, max_available)
+
+        # Always slice `chunk_size` elements and then apply a mask
+        reward_chunk = jax.lax.dynamic_slice(
+            reward_buffer,
+            start_indices=(0, chunk_start, 0),
+            slice_sizes=(num_envs, chunk_size, 1),
+        ).squeeze(-1)
+
+        done_chunk = jax.lax.dynamic_slice(
+            done_buffer,
+            start_indices=(0, chunk_start, 0),
+            slice_sizes=(num_envs, chunk_size, 1),
+        ).squeeze(-1)
+
+        # Mask out the extra elements beyond the actual length of data in the chunk
+        mask = jnp.arange(chunk_size) < mask_len  # [chunk_size] mask
+        reward_chunk = reward_chunk * mask  # Apply mask to reward
+        done_chunk = done_chunk * mask  # Apply mask to done
+
+        # Apply masked cumulative sum over the rewards and dones
+        masked = jax.vmap(masked_cumsum_include_done)(reward_chunk, done_chunk)
+
+        reward_sum += jnp.sum(masked * done_chunk)
+        done_count += jnp.sum(done_chunk)
+        del masked, reward_chunk, done_chunk, mask
+        gc.collect()
+        jax.clear_caches()
+        return reward_sum, done_count
+
+    # Initialize accumulator for sum and count
+    init_carry = (jnp.array(0.0), jnp.array(0.0))
+
+    # Use `lax.fori_loop` to process chunks sequentially, minimizing memory use
+    reward_sum, done_count = jax.lax.fori_loop(0, num_chunks, process_chunk, init_carry)
+
+    # Compute the final episodic mean reward
+    episodic_mean_reward = reward_sum / done_count
+    return episodic_mean_reward
 
 
 @partial(
@@ -668,7 +744,9 @@ def prepare_metrics(aux):
         "action_dim",
         "lstm_hidden_size",
         "agent_args",
+        "chunk_size",
     ],
+    donate_argnums=0,
 )
 def training_iteration(
     agent_state: SACState,
@@ -681,6 +759,7 @@ def training_iteration(
     action_dim: int,
     lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 1000,
+    chunk_size: int = 1000,
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
@@ -766,8 +845,8 @@ def training_iteration(
         operand=agent_state,
     )
 
-    def run_and_log(agent_state, index):
-        eval_key, rng = jax.random.split(agent_state.rng)
+    def run_and_log(agent_state, aux, index):
+        eval_key, eval_rng = jax.random.split(agent_state.eval_rng)
         eval_rewards, eval_entropy = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
@@ -779,63 +858,17 @@ def training_iteration(
         )
 
         if log:
-            current_index = agent_state.collector_state.buffer_state.current_index
-            # Compute the starting index for slicing
-            start_idx = current_index - log_frequency
-            # Perform dynamic slicing
-            # Shape of result will be [num_envs, log_frequency]
-            reward_buffer = agent_state.collector_state.buffer_state.experience[
-                "reward"
-            ]
-            done_buffer = agent_state.collector_state.buffer_state.experience["done"]
-            previous_rollout_rewards = jax.lax.dynamic_slice(
-                reward_buffer,
-                start_indices=(0, start_idx, 0),
-                slice_sizes=(reward_buffer.shape[0], log_frequency, 1),
-            ).squeeze(0)
-
-            previous_rollout_dones = jax.lax.dynamic_slice(
-                done_buffer,
-                start_indices=(0, start_idx, 0),
-                slice_sizes=(done_buffer.shape[0], log_frequency, 1),
-            ).squeeze(0)
-
-            def masked_cumsum_include_done(rewards, dones):
-                """
-                rewards: shape [T]
-                dones:   shape [T] (values 0 or 1)
-                Returns a cumsum that resets *after* including the reward at done==1
-                """
-
-                def step(carry, inputs):
-                    running_sum = carry
-                    reward, done = inputs
-                    new_sum = reward + running_sum
-                    next_carry = new_sum * (1.0 - done)
-                    # * (
-                    #     1.0 - done
-                    # )  # reset AFTER including reward at done==1
-                    return next_carry, new_sum
-
-                init = jnp.zeros_like(rewards[0])
-                _, out = jax.lax.scan(step, init=init, xs=(rewards, dones))
-                return out
-
-            episodic_mean_reward = jnp.mean(
-                masked_cumsum_include_done(
-                    previous_rollout_rewards, previous_rollout_dones
-                ),
-                where=previous_rollout_dones,
-            )  # TODO : it seems this could be done more easily with EvalWrapper from brax
+            episodic_mean_reward = compute_episodic_mean_reward(
+                agent_state, log_frequency, chunk_size=chunk_size
+            )
             metrics_to_log = {
                 "timestep": timestep,
                 "Eval/episodic mean reward": eval_rewards,
                 "Eval/episodic entropy": eval_entropy,
                 "Train/episodic mean reward": episodic_mean_reward,
             }
-
+            metrics_to_log.update(flatten_dict(to_state_dict(aux)))
             jax.debug.callback(log_fn, metrics_to_log, index)
-            # jax.clear_caches()
 
         if verbose:
             jax.debug.print(
@@ -848,20 +881,12 @@ def training_iteration(
                 entropy_val=eval_entropy,
             )
 
-        return agent_state.replace(rng=rng)
-
-    def prepare_and_log(aux, index, timestep):
-        filtered_metrics = prepare_metrics(aux)
-        filtered_metrics["timestep"] = timestep
-        log_fn(filtered_metrics, index)
-
-    def log_aux(aux, index, timestep):
-        jax.debug.callback(prepare_and_log, aux, index, timestep)
+        return agent_state.replace(eval_rng=eval_rng)
 
     if log:
         flag = jnp.logical_and((timestep % log_frequency) == 1, timestep > 1)
-        agent_state = jax.lax.cond(flag, run_and_log, no_op, agent_state, index)
-        jax.lax.cond(flag, log_aux, no_op_none, aux, index, timestep)
+        agent_state = jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
+        del aux
 
     jax.clear_caches()
     # gc.collect()
@@ -954,6 +979,9 @@ def make_train(
             log=log,
             log_frequency=(
                 logging_config.log_frequency if logging_config is not None else None
+            ),
+            chunk_size=(
+                logging_config.chunk_size if logging_config is not None else None
             ),
         )
 

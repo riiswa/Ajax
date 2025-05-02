@@ -8,8 +8,10 @@ from queue import Queue
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
+import jax.numpy as jnp
 import wandb
 from flax import struct
+from flax.serialization import to_state_dict
 
 
 @struct.dataclass
@@ -22,6 +24,7 @@ class LoggingConfig:
     log_frequency: int = 1000
     mode: str = "online"
     group_name: Optional[str] = None
+    chunk_size: int = 1000
 
 
 # Global queue for async logging
@@ -108,6 +111,22 @@ def _logging_worker():
             continue
 
 
+def flatten_dict(dict: Dict) -> Dict:
+    return_dict = {}
+    for key, val in dict.items():
+        if isinstance(val, Dict):
+            for subkey, subval in val.items():
+                return_dict[f"{key}/{subkey}"] = subval
+        else:
+            return_dict[key] = val
+    return return_dict
+
+
+def prepare_metrics(aux):
+    log_metrics = flatten_dict(to_state_dict(aux))
+    return {key: val for (key, val) in log_metrics.items() if not (jnp.isnan(val))}
+
+
 def vmap_log(
     log_metrics: Dict[str, Any],
     index: int,
@@ -118,10 +137,14 @@ def vmap_log(
     Log metrics in a vmap fashion, allowing to log multiple runs in parallel.
     This version dumps metrics to a queue for async processing.
     """
+
     run_id = run_ids[index]
 
     # Convert JAX arrays to numpy for queue compatibility
-    metrics_np = {k: jax.device_get(v) for k, v in log_metrics.items()}
+    metrics_np = {
+        k: jax.device_get(v) for k, v in log_metrics.items() if not jnp.isnan(v)
+    }
+
     step = log_metrics["timestep"]
     # Put metrics in queue for async processing
     logging_queue.put(
