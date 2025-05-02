@@ -7,6 +7,7 @@ from brax.envs import create as create_brax_env
 from flax import struct
 
 from ajax.wrappers import (
+    AutoResetWrapper,
     BraxToGymnasium,
     ClipAction,
     ClipActionBrax,
@@ -326,3 +327,41 @@ def test_brax_to_gymnasium_observation_space(fast_brax_env):
 def test_fails_with_autoreset(fail_brax_env):
     with pytest.raises(AssertionError):
         BraxToGymnasium(fail_brax_env)
+
+
+N_STEPS = 5
+
+
+@pytest.fixture
+def brax_env_with_autoreset():
+    """Fixture to create a Brax environment wrapped with AutoResetWrapper."""
+    env = create_brax_env(
+        "hopper", batch_size=2, auto_reset=False, episode_length=N_STEPS
+    )  # fast env has a fixed initial obs, had to switch to a real one
+    return AutoResetWrapper(env)
+
+
+@pytest.mark.slow
+def test_autoreset_initialization_differs(brax_env_with_autoreset):
+    """Test that the initialization is different at each episode start."""
+    wrapped_env = brax_env_with_autoreset
+    rng = jax.random.PRNGKey(0)
+    state = wrapped_env.reset(rng)
+    initial_rng = state.info["rng"]
+    initial_obs = state.obs
+
+    # Step the environment until at least one episode ends
+    for _ in range(N_STEPS):
+        action = jnp.zeros((wrapped_env.n_envs, wrapped_env.action_size))
+        state = wrapped_env.step(state, action)
+
+    assert state.done[0]  # env should reset after N_STEPS steps
+    # Check that the RNG used for initialization differs after reset
+
+    new_rng = state.info["rng"]
+    new_init_obs = state.obs
+
+    assert not jnp.array_equal(initial_rng, new_rng), "RNG should differ after reset"
+    assert not jnp.array_equal(
+        initial_obs, new_init_obs
+    ), "Initial obs should differ after reset"

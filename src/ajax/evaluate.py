@@ -35,20 +35,13 @@ def evaluate(
     mode = "gymnax" if check_env_is_gymnax(env) else "brax"
     if mode == "brax":
         env_name = type(env.unwrapped).__name__.lower()
-        env = create(env_name=env_name, batch_size=num_episodes)
-    # env, env_params, env_id, continuous = prepare_env(
-    #     env_id=type(env.unwrapped).__name__.lower(),
-    #     env_params=env_params,
-    #     normalize_obs=False,
-    #     normalize_reward=False,
-    #     num_envs=num_episodes,
-    #     gamma=gamma,
-    # )
+        env = create(
+            env_name=env_name, batch_size=num_episodes
+        )  # no need for autoreset with random init as we only done one episode
     key, reset_key = jax.random.split(key, 2)
     reset_keys = (
         jax.random.split(reset_key, num_episodes) if mode == "gymnax" else reset_key
     )
-    # jax.debug.print("{x}", x=reset_keys)
 
     def get_deterministic_action_and_entropy(
         obs: jax.Array,
@@ -69,7 +62,6 @@ def evaluate(
         return action, entropy
 
     obs, state = reset_env(reset_keys, env, mode, env_params)
-    # jax.debug.print("{obs}", obs=obs[:, 0])
     done = jnp.zeros(num_episodes, dtype=jnp.int8)
     rewards = jnp.zeros(num_episodes)
     entropy_sum = jnp.zeros(1)
@@ -100,12 +92,6 @@ def evaluate(
         step_count += still_running.mean()
         entropy_sum += (entropy.mean() * still_running).mean()
         done = done | jnp.int8(new_done)
-        # jax.lax.cond(
-        #     jnp.sum(done) > 0,
-        #     lambda _: jax.debug.print("eval {x} {y}", x=done, y=obs),
-        #     lambda _: None,
-        #     operand=None,
-        # )
 
         rewards += new_rewards * (1 - done)
         return rewards, rng, obs, done, state, entropy_sum, step_count

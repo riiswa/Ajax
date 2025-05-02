@@ -776,13 +776,6 @@ def training_iteration(
             current_index = agent_state.collector_state.buffer_state.current_index
             # Compute the starting index for slicing
             start_idx = current_index - log_frequency
-            # jax.debug.print(
-            #     "{x} {y} {z} {a}",
-            #     x=start_idx,
-            #     y=current_index,
-            #     z=log_frequency,
-            #     a=start_idx >= 0,
-            # )
             # Perform dynamic slicing
             # Shape of result will be [num_envs, log_frequency]
             reward_buffer = agent_state.collector_state.buffer_state.experience[
@@ -827,7 +820,7 @@ def training_iteration(
                     previous_rollout_rewards, previous_rollout_dones
                 ),
                 where=previous_rollout_dones,
-            )
+            )  # TODO : it seems this could be done more easily with EvalWrapper from brax
             metrics_to_log = {
                 "timestep": timestep,
                 "Eval/episodic mean reward": eval_rewards,
@@ -870,7 +863,6 @@ def training_iteration(
 
 
 def profile_memory(timestep):
-    jax.debug.print("ça profile là")
     jax.profiler.save_device_memory_profile(f"memory{timestep}.prof")
 
 

@@ -673,8 +673,16 @@ class BraxToGymnasium(BraxWrapper):
         raise NotImplementedError
 
 
+def identity(x):
+    return x
+
+
+def split(x):
+    return jax.random.split(x)[0]
+
+
 class AutoResetWrapper(Wrapper):
-    """Automatically resets Brax envs that are done."""
+    """Automatically resets Brax envs that are done, sampling a new random seed for initialization at each reset. This seed is propagated through info["rng"]"""
 
     def __init__(self, env: Wrapper):
         super().__init__(env)
@@ -691,21 +699,25 @@ class AutoResetWrapper(Wrapper):
         return state
 
     def step(self, state: State, action: jax.Array) -> State:
-        # Strip RNG before passing state to wrapped env
-        # rng = state.rng
-        rng = state.info["rng"][0]
-        rng, next_rng = jax.random.split(rng)
-        # state = self.env.step(state, action)
         if "steps" in state.info:
             steps = state.info["steps"]
             steps = jnp.where(state.done, jnp.zeros_like(steps), steps)
             state.info.update(steps=steps)
-        state.info["rng"] = (
-            rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
-        )
-        # jax.debug.print("{x} {y}", x=rng, y=state.info["rng"])
+
         state = state.replace(done=jnp.zeros_like(state.done))
         state = self.env.step(state, action)
+        rng = state.info["rng"][0]
+        new_rng = jax.lax.cond(
+            state.done.any(), split, identity, rng
+        )  # Only generate a new seed when at least one env is done
+        new_init_state = self.reset(
+            new_rng
+        )  # If I am correct, as long as the seed is the same jax will use the cached result and not recompute reset, only recomputing for a new seed.
+        state.info["rng"] = (
+            new_rng.reshape(1, -1)
+            if self.single_env
+            else jnp.tile(new_rng, (self.n_envs, 1))
+        )  # shape shenanigans to adapt to parallel environments, they are suboptimal at the moment as the seed is only copied to match the batch size, but only one is really used. TODO : Check if it works correcly on parallel environments : check that each one has a proper different reset.
 
         def where_done(x, y):
             done = state.done
@@ -713,10 +725,6 @@ class AutoResetWrapper(Wrapper):
                 done = jnp.reshape(done, [x.shape[0]] + [1] * (len(x.shape) - 1))  # type: ignore
             return jnp.where(done, x, y)
 
-        new_init_state = jax.lax.cond(
-            state.done.any(), lambda: self.reset(rng), lambda: state
-        )
-        # new_init_state = state
         pipeline_state = jax.tree.map(
             where_done,
             new_init_state.info["first_pipeline_state"],

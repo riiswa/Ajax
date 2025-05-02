@@ -180,3 +180,5 @@ tensorboard
 
 logs
 runs
+
+src/ajax/compare_sb3/
