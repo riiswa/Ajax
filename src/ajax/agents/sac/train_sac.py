@@ -1,4 +1,3 @@
-import gc
 import os
 from collections.abc import Sequence
 from dataclasses import fields
@@ -22,7 +21,11 @@ from ajax.environments.interaction import (
 )
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.evaluate import evaluate
-from ajax.logging.wandb_logging import LoggingConfig, vmap_log
+from ajax.logging.wandb_logging import (
+    LoggingConfig,
+    start_async_logging,
+    vmap_log,
+)
 from ajax.networks.networks import (
     get_adam_tx,
     get_initialized_actor_critic,
@@ -662,6 +665,9 @@ def prepare_metrics(aux):
         "log_fn",
         "log",
         "verbose",
+        "action_dim",
+        "lstm_hidden_size",
+        "agent_args",
     ],
 )
 def training_iteration(
@@ -829,7 +835,7 @@ def training_iteration(
             }
 
             jax.debug.callback(log_fn, metrics_to_log, index)
-            jax.clear_caches()
+            # jax.clear_caches()
 
         if verbose:
             jax.debug.print(
@@ -858,7 +864,7 @@ def training_iteration(
         jax.lax.cond(flag, log_aux, no_op_none, aux, index, timestep)
 
     jax.clear_caches()
-    gc.collect()
+    # gc.collect()
     return agent_state, None
 
 
@@ -915,8 +921,13 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
+    # Start async logging if logging is enabled
+    if logging_config is not None:
+        start_async_logging()
+
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
+        """Train the SAC agent."""
         agent_state = init_sac(
             key=key,
             env_args=env_args,
@@ -952,6 +963,10 @@ def make_train(
             xs=None,
             length=num_updates,
         )
+
+        # Stop async logging if it was started
+        # if logging_config is not None:
+        #     stop_async_logging()
 
         return agent_state
 

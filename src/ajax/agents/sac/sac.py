@@ -14,7 +14,11 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
-from ajax.logging.wandb_logging import LoggingConfig, with_wandb_silent
+from ajax.logging.wandb_logging import (
+    LoggingConfig,
+    stop_async_logging,
+    with_wandb_silent,
+)
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import EnvType
 
@@ -166,6 +170,7 @@ class SAC:
             )
 
             agent_state = train_jit(key, index)
+            stop_async_logging()
             return agent_state
 
         index = jnp.arange(len(seed))
@@ -180,7 +185,7 @@ if __name__ == "__main__":
     env_id = "halfcheetah"
     sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
     sac_agent.train(
-        seed=list(range(1)),
+        seed=list(range(10)),
         num_timesteps=int(1e6),
         logging_config=logging_config,
     )
