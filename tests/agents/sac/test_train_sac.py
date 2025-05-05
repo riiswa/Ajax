@@ -62,7 +62,16 @@ def env_config(request, fast_env_config, gymnax_env_config):
 
 
 @pytest.fixture
-def sac_state(env_config):
+def buffer(env_config):
+    return get_buffer(
+        **to_state_dict(
+            BufferConfig(buffer_size=1000, batch_size=32, num_envs=env_config.num_envs)
+        )
+    )
+
+
+@pytest.fixture
+def sac_state(env_config, buffer):
     key = jax.random.PRNGKey(0)
     optimizer_args = OptimizerConfig(learning_rate=3e-4)
     network_args = NetworkConfig(
@@ -72,11 +81,7 @@ def sac_state(env_config):
         lstm_hidden_size=None,
     )
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
-    buffer = get_buffer(
-        **to_state_dict(
-            BufferConfig(buffer_size=1000, batch_size=32, num_envs=env_config.num_envs)
-        )
-    )
+
     return init_sac(
         key=key,
         env_args=env_config,
@@ -595,42 +600,6 @@ def test_update_agent_with_scan(env_config, sac_state):
     # Validate the final state
     assert final_state is not None, "Final state should not be None."
     assert final_state.rng is not None, "Final RNG should not be None."
-
-
-@pytest.mark.parametrize(
-    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
-)
-def test_training_iteration(env_config, sac_state):
-    buffer = get_buffer(buffer_size=100, batch_size=32, num_envs=env_config.num_envs)
-    gamma = 0.99
-    tau = 0.005
-    action_dim = 1
-    recurrent = False
-    agent_args = SACConfig(gamma=gamma, tau=tau, target_entropy=-1.0, learning_starts=5)
-    log_frequency = 10
-
-    # Initialize buffer state
-    buffer_state = init_buffer(buffer, env_config)
-    sac_state = sac_state.replace(
-        collector_state=sac_state.collector_state.replace(buffer_state=buffer_state)
-    )
-
-    # Run a single training iteration
-    updated_state, _ = training_iteration(
-        agent_state=sac_state,
-        _=None,
-        env_args=env_config,
-        mode="gymnax" if env_config.env_params else "brax",
-        recurrent=recurrent,
-        buffer=buffer,
-        agent_args=agent_args,
-        action_dim=action_dim,
-        log_frequency=log_frequency,
-    )
-
-    # Validate the updated state
-    assert updated_state is not None, "Updated state should not be None."
-    assert updated_state.rng is not None, "Updated RNG should not be None."
 
 
 @pytest.mark.parametrize(

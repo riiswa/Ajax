@@ -746,7 +746,6 @@ def compute_episodic_mean_reward(agent_state, log_frequency, chunk_size=1000):
         "agent_args",
         "chunk_size",
     ],
-    donate_argnums=0,
 )
 def training_iteration(
     agent_state: SACState,

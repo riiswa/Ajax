@@ -199,7 +199,7 @@ def assert_shape(x, expected_shape, name="tensor"):
 @partial(
     jax.jit,
     static_argnames=["recurrent", "mode", "env_args", "buffer"],
-    donate_argnums=0,
+    # donate_argnums=0,
 )
 def collect_experience(
     agent_state: BaseAgentState,

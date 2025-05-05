@@ -197,98 +197,56 @@ def test_get_pi_recurrent(mock_recurrent_actor_state):
     assert new_actor_state.hidden_state.shape == (1, 2)
 
 
-def test_get_action_and_new_agent_state(mock_actor_state_discrete, gymnax_env):
-    """Test action generation and agent state update for discrete action environments."""
-    env, env_params = gymnax_env
-    reset_key, rng = jax.random.split(jax.random.PRNGKey(0))
-    reset_keys = jax.random.split(reset_key, NUM_ENVS)  # Simulate 4 environments
-    obs, env_state = reset_env(reset_keys, env, mode="gymnax", env_params=env_params)
-
-    collector_state = CollectorState(
-        rng=rng,
-        env_state=env_state,
-        last_obs=obs,
-        last_done=jnp.zeros((NUM_ENVS,)),  # Added last_done
-    )
-
-    agent_state = BaseAgentState(
-        rng=rng,
-        actor_state=mock_actor_state_discrete,
-        critic_state=mock_actor_state_discrete,
-        collector_state=collector_state,
-    )
-
-    action, new_agent_state = get_action_and_new_agent_state(
-        agent_state, obs, recurrent=False
-    )
-
-    assert action.shape[0] == obs.shape[0]
-    assert new_agent_state.rng is not None
-
-
-def test_get_action_and_new_agent_state_continuous(
-    mock_actor_state_continuous, gymnax_env
+@pytest.mark.parametrize(
+    "mock_actor_state_key,recurrent",
+    [
+        ("mock_actor_state_discrete", False),
+        ("mock_actor_state_continuous", False),
+        ("mock_recurrent_actor_state", True),
+    ],
+)
+def test_get_action_and_new_agent_state(
+    mock_actor_state_key, recurrent, request, gymnax_env
 ):
-    """Test action generation and agent state update for continuous action environments."""
+    """Test action generation and agent state update for discrete, continuous, and recurrent agents."""
     env, env_params = gymnax_env
-    reset_key, rng = jax.random.split(jax.random.PRNGKey(0))
-    reset_keys = jax.random.split(reset_key, NUM_ENVS)  # Simulate 4 environments
+    mock_actor_state = request.getfixturevalue(mock_actor_state_key)
+
+    reset_key, rng, eval_rng = jax.random.split(jax.random.PRNGKey(0), 3)
+    reset_keys = jax.random.split(reset_key, NUM_ENVS)
     obs, env_state = reset_env(reset_keys, env, mode="gymnax", env_params=env_params)
 
     collector_state = CollectorState(
         rng=rng,
         env_state=env_state,
         last_obs=obs,
-        last_done=jnp.zeros((NUM_ENVS,)),  # Added last_done
+        last_done=jnp.zeros((NUM_ENVS,)),
     )
+
+    if recurrent:
+        mock_actor_state = mock_actor_state.replace(
+            hidden_state=jnp.zeros((NUM_ENVS, 2))
+        )
 
     agent_state = BaseAgentState(
         rng=rng,
-        actor_state=mock_actor_state_continuous,
-        critic_state=mock_actor_state_continuous,
-        collector_state=collector_state,
-    )
-
-    action, new_agent_state = get_action_and_new_agent_state(
-        agent_state, obs, recurrent=False
-    )
-    assert action.shape[0] == obs.shape[0]
-    assert new_agent_state.rng is not None
-
-
-def test_get_action_and_new_agent_state_recurrent(
-    mock_recurrent_actor_state, gymnax_env
-):
-    """Test action generation and agent state update in recurrent mode."""
-    mock_actor_state = mock_recurrent_actor_state
-    env, env_params = gymnax_env
-    reset_key, rng = jax.random.split(jax.random.PRNGKey(0))
-    reset_keys = jax.random.split(reset_key, NUM_ENVS)  # Simulate 4 environments
-    obs, env_state = reset_env(reset_keys, env, mode="gymnax", env_params=env_params)
-
-    collector_state = CollectorState(
-        rng=rng,
-        env_state=env_state,
-        last_obs=obs,
-        last_done=jnp.zeros((NUM_ENVS,)),  # Added last_done
-    )
-
-    mock_actor_state = mock_actor_state.replace(hidden_state=jnp.zeros((NUM_ENVS, 2)))
-
-    agent_state = BaseAgentState(
-        rng=rng,
+        eval_rng=eval_rng,
         actor_state=mock_actor_state,
         critic_state=mock_actor_state,
         collector_state=collector_state,
     )
 
     action, new_agent_state = get_action_and_new_agent_state(
-        agent_state, obs, done=jnp.zeros((NUM_ENVS,)), recurrent=True
+        agent_state, obs, done=jnp.zeros((NUM_ENVS,)), recurrent=recurrent
     )
 
     assert action.shape[0] == obs.shape[0]
-    assert new_agent_state.rng is not None
-    assert new_agent_state.actor_state.hidden_state.shape == (NUM_ENVS, 2)
+
+    if recurrent:
+        assert new_agent_state.actor_state.hidden_state.shape == (NUM_ENVS, 2)
+
+    assert not jnp.array_equal(new_agent_state.rng, agent_state.rng)
+    assert jnp.array_equal(new_agent_state.eval_rng, agent_state.eval_rng)
 
 
 def test_step_env_scan_compatibility(gymnax_env):
@@ -378,6 +336,7 @@ def test_get_action_and_new_agent_state_recurrent_without_done(
 
     agent_state = BaseAgentState(
         rng=rng,
+        eval_rng=rng,
         actor_state=mock_recurrent_actor_state,
         critic_state=mock_recurrent_actor_state,
         collector_state=collector_state,
