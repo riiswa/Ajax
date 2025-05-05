@@ -7,8 +7,11 @@ import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
-from brax.envs.base import State
+from brax.envs import Env as BraxEnv
+from brax.envs.base import State, Wrapper
 from flax import struct
+from gymnasium import core
+from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
 
 
@@ -586,3 +589,147 @@ def get_wrappers(mode: str = "gymnax"):
     if mode == "gymnax":
         return ClipAction, NormalizeVecObservation, NormalizeVecReward
     return ClipActionBrax, NormalizeVecObservationBrax, NormalizeVecRewardBrax
+
+
+def check_wrapped_env_has_autoreset(wrapped_env: BraxWrapper):
+    if "AutoResetWrapper" in wrapped_env.__repr__():
+        return True
+    while "env" in dir(wrapped_env):
+        return check_wrapped_env_has_autoreset(wrapped_env.env)
+    return False
+
+
+class BraxToGymnasium(BraxWrapper):
+    def __init__(self, env: BraxEnv, seed: Optional[int] = None):
+        super().__init__(env)
+        assert not check_wrapped_env_has_autoreset(
+            env
+        ), "Environment should not autoreset"
+        self._env = env
+        env_name = str(env.unwrapped.__class__).split(".")[-1][:-2]
+        self.metadata = {
+            "name": env_name,
+            "render_modes": ["human", "rgb_array"] if hasattr(env, "render") else [],
+        }
+
+        self.rng: chex.PRNGKey = jax.random.PRNGKey(0)  # Placeholder
+        self._seed(seed)
+
+    @property
+    def action_space(self):
+        """Dynamically adjust action space depending on params."""
+        return gymnasium_spaces.Box(
+            low=-1,
+            high=1,
+            shape=(self._env.action_size,),
+        )
+
+    @property
+    def observation_space(self):
+        """Dynamically adjust state space depending on params."""
+        return gymnasium_spaces.Box(
+            low=-jnp.inf, high=jnp.inf, shape=(self._env.observation_size,)
+        )
+
+    def _seed(self, seed: Optional[int] = None):
+        """Set RNG seed (or use 0)."""
+        self.rng = jax.random.PRNGKey(seed or 0)
+
+    def step(
+        self, action: core.ActType
+    ) -> Tuple[core.ObsType, float, bool, bool, Dict[Any, Any]]:
+        """Step environment, follow new step API."""
+        self.env_state = self._env.step(self.env_state, action)  # type: ignore[has-type]
+        obsv, reward, done, info = (
+            self.env_state.obs,
+            self.env_state.reward,
+            self.env_state.done,
+            self.env_state.info,
+        )
+        return (
+            obsv,
+            float(reward.item()),
+            bool(done.item()),
+            bool(done.item()),
+            info,
+        )
+
+    def reset(
+        self,
+        *,
+        seed: Optional[int] = None,
+        return_info: bool = False,
+        options: Optional[Any] = None,  # dict
+    ) -> Tuple[core.ObsType, Any]:  # dict]:
+        """Reset environment, update parameters and seed if provided."""
+        if seed is not None:
+            self._seed(seed)
+        self.rng, reset_key = jax.random.split(self.rng)
+        self.env_state = self._env.reset(reset_key)
+        return self.env_state.obs, {}
+
+    def render(self, mode="human") -> None:
+        """use underlying environment rendering if it exists, otherwise return None."""
+        raise NotImplementedError
+
+
+def identity(x):
+    return x
+
+
+def split(x):
+    return jax.random.split(x)[0]
+
+
+class AutoResetWrapper(Wrapper):
+    """Automatically resets Brax envs that are done, sampling a new random seed for initialization at each reset. This seed is propagated through info["rng"]"""
+
+    def __init__(self, env: Wrapper):
+        super().__init__(env)
+        self.n_envs = env.reset(jax.random.PRNGKey(0)).obs.shape[0]
+        self.single_env = self.n_envs == 1
+
+    def reset(self, rng: jax.Array) -> State:
+        state = self.env.reset(rng)
+        state.info["first_pipeline_state"] = state.pipeline_state
+        state.info["first_obs"] = state.obs
+        state.info["rng"] = (
+            rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
+        )
+        return state
+
+    def step(self, state: State, action: jax.Array) -> State:
+        if "steps" in state.info:
+            steps = state.info["steps"]
+            steps = jnp.where(state.done, jnp.zeros_like(steps), steps)
+            state.info.update(steps=steps)
+
+        state = state.replace(done=jnp.zeros_like(state.done))
+        state = self.env.step(state, action)
+        rng = state.info["rng"][0]
+        new_rng = jax.lax.cond(
+            state.done.any(), split, identity, rng
+        )  # Only generate a new seed when at least one env is done
+        new_init_state = self.reset(
+            new_rng
+        )  # If I am correct, as long as the seed is the same jax will use the cached result and not recompute reset, only recomputing for a new seed.
+        state.info["rng"] = (
+            new_rng.reshape(1, -1)
+            if self.single_env
+            else jnp.tile(new_rng, (self.n_envs, 1))
+        )  # shape shenanigans to adapt to parallel environments, they are suboptimal at the moment as the seed is only copied to match the batch size, but only one is really used. TODO : Check if it works correcly on parallel environments : check that each one has a proper different reset.
+
+        def where_done(x, y):
+            done = state.done
+            if done.shape:
+                done = jnp.reshape(done, [x.shape[0]] + [1] * (len(x.shape) - 1))  # type: ignore
+            return jnp.where(done, x, y)
+
+        pipeline_state = jax.tree.map(
+            where_done,
+            new_init_state.info["first_pipeline_state"],
+            state.pipeline_state,
+        )
+        obs = where_done(new_init_state.info["first_obs"], state.obs)
+        state = state.replace(pipeline_state=pipeline_state, obs=obs)
+        return state

@@ -78,7 +78,7 @@ def step_env(
             in_axes=(0, 0, 0, None),
         )(rng, state, action, env_params)
         done = jnp.float_(done)
-    else:  # ✅ no vmap for brax
+    elif mode == "brax":  # ✅ no vmap for brax
         env_state = env.step(state, action)
         obsv, reward, done, info = (
             env_state.obs,
@@ -86,6 +86,8 @@ def step_env(
             env_state.done,
             env_state.info,
         )
+    else:
+        raise ValueError(f"Unrecognized mode for step_env {mode}")
     return obsv, env_state, reward, done, info
 
 
@@ -197,7 +199,7 @@ def assert_shape(x, expected_shape, name="tensor"):
 @partial(
     jax.jit,
     static_argnames=["recurrent", "mode", "env_args", "buffer"],
-    donate_argnums=0,
+    # donate_argnums=0,
 )
 def collect_experience(
     agent_state: BaseAgentState,
@@ -224,7 +226,7 @@ def collect_experience(
     """
     rng, uniform_key = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
-    action, agent_state = get_action_and_new_agent_state(
+    agent_action, agent_state = get_action_and_new_agent_state(
         agent_state,
         agent_state.collector_state.last_obs,
         agent_state.collector_state.last_done,
@@ -232,11 +234,12 @@ def collect_experience(
     )
     uniform_action = jax.random.uniform(
         uniform_key,
-        shape=action.shape,
+        shape=agent_action.shape,
         minval=-1.0,
         maxval=1.0,
     )
-    assert_shape(uniform_action, action.shape)
+
+    assert_shape(uniform_action, agent_action.shape)
 
     # Use jax.lax.cond to choose between uniform sampling and policy sampling
     action = jax.lax.cond(
@@ -244,7 +247,7 @@ def collect_experience(
         _select_uniform_action,
         _select_policy_action,
         uniform_action,
-        action,
+        agent_action,
     )
 
     rng, step_key = jax.random.split(agent_state.rng)
@@ -260,7 +263,6 @@ def collect_experience(
         mode,
         env_args.env_params,
     )
-
     buffer_state = buffer.add(
         agent_state.collector_state.buffer_state,
         {

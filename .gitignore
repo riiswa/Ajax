@@ -177,3 +177,9 @@ models
 
 tensorboard
 *.DS_Store
+
+logs
+runs
+
+src/ajax/compare_sb3/
+todo.md

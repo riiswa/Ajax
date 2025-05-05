@@ -6,7 +6,11 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from flax.core import FrozenDict
-from flax.linen.initializers import constant, orthogonal
+from flax.linen.initializers import (
+    constant,
+    xavier_normal,
+    xavier_uniform,
+)
 from flax.serialization import to_state_dict
 
 from ajax.agents.sac.utils import SquashedNormal
@@ -51,12 +55,12 @@ class Actor(nn.Module):
         if self.continuous:
             self.mean = nn.Dense(
                 self.action_dim,
-                kernel_init=orthogonal(0.01),
+                kernel_init=xavier_normal(),
                 bias_init=constant(0.0),
             )
             self.log_std = nn.Dense(
                 self.action_dim,
-                kernel_init=orthogonal(0.01),
+                kernel_init=xavier_uniform(),
                 bias_init=constant(0.0),
             )
         else:
@@ -64,8 +68,8 @@ class Actor(nn.Module):
                 [
                     nn.Dense(
                         self.action_dim,
-                        kernel_init=orthogonal(1.0),
-                        bias_init=constant(0.0),
+                        kernel_init=uniform_init(1e-3),
+                        bias_init=uniform_init(1e-3),
                     ),
                     distrax.Categorical,
                 ],
@@ -77,8 +81,8 @@ class Actor(nn.Module):
         embedding = self.encoder(obs)
         if self.continuous:
             mean = self.mean(embedding)
-            # log_std = jnp.clip(self.log_std(embedding), -5, 2)
-            log_std = self.log_std(embedding)
+            log_std = jnp.clip(self.log_std(embedding), -20, 2)
+            # log_std = self.log_std(embedding)
             std = jnp.exp(log_std)
             return (
                 distrax.Normal(mean, std)
@@ -96,7 +100,7 @@ class Critic(nn.Module):
         self.model = nn.Dense(
             1,
             kernel_init=uniform_init(3e-3),
-            bias_init=uniform_init(3e-3),
+            bias_init=constant(0.1),
         )
 
     def __call__(self, x: jax.Array) -> jax.Array:

@@ -3,9 +3,12 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import pytest
+from brax.envs import create as create_brax_env
 from flax import struct
 
 from ajax.wrappers import (
+    AutoResetWrapper,
+    BraxToGymnasium,
     ClipAction,
     ClipActionBrax,
     FlattenObservationWrapper,
@@ -268,3 +271,97 @@ def test_normalize_vec_reward(wrapper, env_fixture, mode, request):
     rewards = jnp.stack(rewards)
 
     # assert jnp.allclose(jnp.std(rewards), 1, atol=1e-1)
+
+
+@pytest.fixture
+def fast_brax_env():
+    """Fixture to create a Brax environment."""
+    return create_brax_env("fast", batch_size=None, auto_reset=False)
+
+
+@pytest.fixture
+def fail_brax_env():
+    """Fixture to create a Brax environment."""
+    return create_brax_env("fast")
+
+
+def test_brax_to_gymnasium_reset(fast_brax_env):
+    """Test the reset functionality of the BraxToGymnasium wrapper."""
+    wrapped_env = BraxToGymnasium(fast_brax_env)
+    obs, info = wrapped_env.reset(seed=42)
+    assert obs.shape == (fast_brax_env.observation_size,)
+    assert isinstance(info, dict)
+
+
+def test_brax_to_gymnasium_step(fast_brax_env):
+    """Test the step functionality of the BraxToGymnasium wrapper."""
+    wrapped_env = BraxToGymnasium(fast_brax_env)
+    wrapped_env.reset(seed=42)
+    action = jnp.zeros((fast_brax_env.action_size,))
+    obs, reward, done, truncated, info = wrapped_env.step(action)
+    assert obs.shape == (fast_brax_env.observation_size,)
+    assert isinstance(reward, float)
+    assert isinstance(done, bool)
+    assert isinstance(truncated, bool)
+    assert isinstance(info, dict)
+
+
+def test_brax_to_gymnasium_action_space(fast_brax_env):
+    """Test the action space of the BraxToGymnasium wrapper."""
+    wrapped_env = BraxToGymnasium(fast_brax_env)
+    action_space = wrapped_env.action_space
+    assert action_space.shape == (fast_brax_env.action_size,)
+    assert jnp.all(action_space.low == -1)
+    assert jnp.all(action_space.high == 1)
+
+
+def test_brax_to_gymnasium_observation_space(fast_brax_env):
+    """Test the observation space of the BraxToGymnasium wrapper."""
+    wrapped_env = BraxToGymnasium(fast_brax_env)
+    observation_space = wrapped_env.observation_space
+    assert observation_space.shape == (fast_brax_env.observation_size,)
+    assert jnp.isinf(observation_space.low).all()
+    assert jnp.isinf(observation_space.high).all()
+
+
+def test_fails_with_autoreset(fail_brax_env):
+    with pytest.raises(AssertionError):
+        BraxToGymnasium(fail_brax_env)
+
+
+N_STEPS = 5
+
+
+@pytest.fixture
+def brax_env_with_autoreset():
+    """Fixture to create a Brax environment wrapped with AutoResetWrapper."""
+    env = create_brax_env(
+        "hopper", batch_size=2, auto_reset=False, episode_length=N_STEPS
+    )  # fast env has a fixed initial obs, had to switch to a real one
+    return AutoResetWrapper(env)
+
+
+@pytest.mark.slow
+def test_autoreset_initialization_differs(brax_env_with_autoreset):
+    """Test that the initialization is different at each episode start."""
+    wrapped_env = brax_env_with_autoreset
+    rng = jax.random.PRNGKey(0)
+    state = wrapped_env.reset(rng)
+    initial_rng = state.info["rng"]
+    initial_obs = state.obs
+
+    # Step the environment until at least one episode ends
+    for _ in range(N_STEPS):
+        action = jnp.zeros((wrapped_env.n_envs, wrapped_env.action_size))
+        state = wrapped_env.step(state, action)
+
+    assert state.done[0]  # env should reset after N_STEPS steps
+    # Check that the RNG used for initialization differs after reset
+
+    new_rng = state.info["rng"]
+    new_init_obs = state.obs
+
+    assert not jnp.array_equal(initial_rng, new_rng), "RNG should differ after reset"
+    assert not jnp.array_equal(
+        initial_obs, new_init_obs
+    ), "Initial obs should differ after reset"

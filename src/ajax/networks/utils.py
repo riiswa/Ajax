@@ -3,9 +3,8 @@ from typing import Callable, Optional, Union, cast, get_args
 
 import flax.linen as nn
 import jax
-import jax.numpy as jnp
 import optax
-from flax.linen.initializers import constant, orthogonal
+from flax.linen.initializers import constant, xavier_uniform
 from optax import GradientTransformationExtraArgs
 
 from ajax.types import ActivationFunction
@@ -68,8 +67,8 @@ def parse_layer(
     if str(layer).isnumeric():
         return nn.Dense(
             int(cast("str", layer)),
-            kernel_init=orthogonal(jnp.sqrt(2)),
-            bias_init=constant(0.0),
+            kernel_init=xavier_uniform(),
+            bias_init=constant(0),
         )
     return parse_activation(activation=layer)
 

@@ -14,7 +14,11 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
-from ajax.logging.wandb_logging import LoggingConfig, with_wandb_silent
+from ajax.logging.wandb_logging import (
+    LoggingConfig,
+    stop_async_logging,
+    with_wandb_silent,
+)
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import EnvType
 
@@ -31,7 +35,7 @@ class SAC:
         critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = None,
+        max_grad_norm: Optional[float] = 0.5,
         buffer_size: int = int(1e6),
         batch_size: int = 256,
         learning_starts: int = int(1e4),
@@ -62,6 +66,7 @@ class SAC:
             target_entropy_per_dim (float): Target entropy per action dimension.
             lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
+        self.config = {**locals()}
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
@@ -134,6 +139,7 @@ class SAC:
             seed = [seed]
 
         if logging_config is not None:
+            logging_config.config.update(self.config)
             run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
             for index, run_id in enumerate(run_ids):
                 wandb.init(
@@ -164,6 +170,7 @@ class SAC:
             )
 
             agent_state = train_jit(key, index)
+            stop_async_logging()
             return agent_state
 
         index = jnp.arange(len(seed))
@@ -172,11 +179,26 @@ class SAC:
 
 
 if __name__ == "__main__":
-    logging_config = LoggingConfig("SAC_test_vmap", "test", config={"debug": False})
+    n_seeds = 1
+    log_frequency = 20_000
+    chunk_size = 1000
+    logging_config = LoggingConfig(
+        "match_SAC_reproducibility",
+        "test",
+        config={
+            "debug": False,
+            "log_frequency": log_frequency,
+            "n_seeds": n_seeds,
+            "chunk_size": chunk_size,
+        },
+        log_frequency=log_frequency,
+        chunk_size=chunk_size,
+        horizon=10_000,
+    )
     env_id = "halfcheetah"
     sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
     sac_agent.train(
-        seed=list(range(40)),
+        seed=list(range(n_seeds)),
         num_timesteps=int(1e6),
         logging_config=logging_config,
     )
