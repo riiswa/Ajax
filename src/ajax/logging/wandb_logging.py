@@ -25,6 +25,7 @@ class LoggingConfig:
     mode: str = "online"
     group_name: Optional[str] = None
     chunk_size: int = 1000
+    horizon: int = 10_000
 
 
 # Global queue for async logging

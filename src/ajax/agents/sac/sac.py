@@ -180,10 +180,10 @@ class SAC:
 
 if __name__ == "__main__":
     n_seeds = 1
-    log_frequency = 1000
+    log_frequency = 20_000
     chunk_size = 1000
     logging_config = LoggingConfig(
-        "match_SAC",
+        "match_SAC_reproducibility",
         "test",
         config={
             "debug": False,
@@ -193,6 +193,7 @@ if __name__ == "__main__":
         },
         log_frequency=log_frequency,
         chunk_size=chunk_size,
+        horizon=10_000,
     )
     env_id = "halfcheetah"
     sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
