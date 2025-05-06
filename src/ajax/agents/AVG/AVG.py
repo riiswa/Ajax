@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import wandb
 from gymnax import EnvParams
-
+from functools import partial
 from ajax.agents.AVG.state import AVGConfig
 from ajax.agents.AVG.train_AVG import make_train
 from ajax.environments.create import prepare_env
@@ -20,7 +20,7 @@ from ajax.logging.wandb_logging import (
 )
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import EnvType
-
+from ajax.agents.AVG.train_AVG import init_AVG
 
 class AVG:
     """Action Value Gradient (AVG)"""
@@ -141,9 +141,17 @@ class AVG:
         else:
             run_ids = None
 
-        def set_key_and_train(seed, index):
+        def init_state(seed):
             key = jax.random.PRNGKey(seed)
+            return init_AVG(key,
+                env_args=self.env_args,
+                optimizer_args=self.optimizer_args,
+                network_args=self.network_args,
+                alpha_args=self.alpha_args,
+            )
 
+        def set_agent_state_and_train(agent_state, index):
+            
             train_jit = make_train(
                 env_args=self.env_args,
                 optimizer_args=self.optimizer_args,
@@ -156,17 +164,18 @@ class AVG:
                 logging_config=logging_config,
             )
 
-            agent_state = train_jit(key, index)
+            agent_state = train_jit(agent_state, index)
             stop_async_logging()
             return agent_state
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        agent_states = jax.vmap(init_state, in_axes=0)(seed)
+        jax.vmap(set_agent_state_and_train, in_axes=0)(agent_states, index)
 
 
 if __name__ == "__main__":
-    n_seeds = 1
+    n_seeds = 100
     log_frequency = 20_000
     chunk_size = 1000
     logging_config = LoggingConfig(

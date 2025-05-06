@@ -860,15 +860,10 @@ def make_train(
         start_async_logging()
 
     @partial(jax.jit)
-    def train(key, index: Optional[int] = None):
+    def train(agent_state, index: Optional[int] = None):
         """Train the SAC agent."""
-        agent_state = init_AVG(
-            key=key,
-            env_args=env_args,
-            optimizer_args=optimizer_args,
-            network_args=network_args,
-            alpha_args=alpha_args,
-        )
+        
+        
 
         num_updates = total_timesteps // env_args.num_envs
         _, action_shape = get_state_action_shapes(env_args.env, env_args.env_params)
