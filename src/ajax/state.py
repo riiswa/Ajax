@@ -83,6 +83,7 @@ class NetworkConfig:
     critic_architecture: Tuple[str]
     lstm_hidden_size: Optional[int] = None
     squash: bool = False
+    penultimate_normalization: bool = False
 
 
 @struct.dataclass

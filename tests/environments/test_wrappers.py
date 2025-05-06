@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from typing import Any
 
 import jax
@@ -207,7 +208,6 @@ def test_normalize_vec_observation(wrapper, env_fixture, mode, request):
     else:  # Brax
         state = wrapped_env.reset(key)
         obs = state.obs
-
     observations = [obs]
     for _ in range(10):
         key, subkey = jax.random.split(key)
@@ -217,6 +217,7 @@ def test_normalize_vec_observation(wrapper, env_fixture, mode, request):
                 key, state, action, env_params
             )
         else:  # Brax
+            print(state.info)
             state = wrapped_env.step(state, action)
             obs = state.obs
         observations.append(obs)
@@ -269,8 +270,6 @@ def test_normalize_vec_reward(wrapper, env_fixture, mode, request):
             state = wrapped_env.reset(key)
 
     rewards = jnp.stack(rewards)
-
-    # assert jnp.allclose(jnp.std(rewards), 1, atol=1e-1)
 
 
 @pytest.fixture
@@ -365,3 +364,62 @@ def test_autoreset_initialization_differs(brax_env_with_autoreset):
     assert not jnp.array_equal(
         initial_obs, new_init_obs
     ), "Initial obs should differ after reset"
+
+
+class DummyEnv:
+    """Mock Brax env for testing"""
+
+    def __init__(self):
+        self._obs_seq = [
+            jnp.array([1.0, 2.0, 3.0]),  # reset obs
+            jnp.array([4.0, 5.0, 6.0]),  # step 1 obs
+            jnp.array([7.0, 8.0, 9.0]),  # step 2 obs
+        ]
+        self._step_count = 0
+
+    def reset(self, key):
+        obs = self._obs_seq[0]
+        return SimpleNamespace(obs=obs, info={})
+
+    def step(self, state, action):
+        self._step_count += 1
+        obs = self._obs_seq[self._step_count]
+        return SimpleNamespace(obs=obs, info=state.info)
+
+
+def test_normalize_vec_observation_2(brax_env):
+    dummy_env = brax_env
+    wrapper = NormalizeVecObservationBrax(dummy_env)
+
+    # Initial reset
+    key = 0  # dummy key
+    state = wrapper.reset(key)
+
+    # Check initial normalization
+    assert state.info["count"] == 1
+
+    assert jnp.allclose(state.info["mean"], jnp.array([1.0, -1.0]))
+    assert jnp.allclose(state.obs, jnp.zeros(2))  # normalized should be 0
+
+    # Step 1
+    action = None  # dummy action
+    state = wrapper.step(state, action)
+    expected_mean = jnp.array([1.0, -1.0])
+    expected_mean_2 = jnp.array([0.0, 0.0])
+    expected_obs = jnp.array([0.0, 0.0])
+
+    assert state.info["count"] == 2
+    assert jnp.allclose(state.info["mean"], expected_mean)
+    assert jnp.allclose(state.info["mean_2"], expected_mean_2)
+    assert jnp.allclose(state.obs, expected_obs)
+
+    # Step 2
+    state = wrapper.step(state, action)
+    expected_mean = jnp.array([1.0, -1.0])
+    expected_mean_2 = jnp.array([0.0, 0.0])
+    expected_obs = jnp.array([0.0, 0.0])
+
+    assert state.info["count"] == 3
+    assert jnp.allclose(state.info["mean"], expected_mean)
+    assert jnp.allclose(state.info["mean_2"], expected_mean_2)
+    assert jnp.allclose(state.obs, expected_obs)

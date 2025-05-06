@@ -11,6 +11,7 @@ from flax.linen.initializers import (
     xavier_normal,
     xavier_uniform,
 )
+from flax.linen.normalization import _l2_normalize
 from flax.serialization import to_state_dict
 
 from ajax.agents.sac.utils import SquashedNormal
@@ -32,6 +33,7 @@ Heavy inspiration from https://github.com/Howuhh/sac-n-jax/blob/main/sac_n_jax_f
 
 class Encoder(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
+    penultimate_normalization: bool = False
 
     def setup(self):
         layers = parse_architecture(self.input_architecture)
@@ -39,7 +41,10 @@ class Encoder(nn.Module):
 
     @nn.compact
     def __call__(self, input):
-        return self.encoder(input)
+        features = self.encoder(input)
+        if self.penultimate_normalization:
+            return _l2_normalize(features, axis=1)
+        return features
 
 
 class Actor(nn.Module):
@@ -47,10 +52,14 @@ class Actor(nn.Module):
     action_dim: int
     continuous: bool = False
     squash: bool = False
+    penultimate_normalization: bool = False
 
     def setup(self):
         # Initialize the Encoder as a submodule
-        self.encoder = Encoder(input_architecture=self.input_architecture)
+        self.encoder = Encoder(
+            input_architecture=self.input_architecture,
+            penultimate_normalization=self.penultimate_normalization,
+        )
 
         if self.continuous:
             self.mean = nn.Dense(
@@ -94,9 +103,13 @@ class Actor(nn.Module):
 
 class Critic(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
+    penultimate_normalization: bool = False
 
     def setup(self):
-        self.encoder = Encoder(input_architecture=self.input_architecture)
+        self.encoder = Encoder(
+            input_architecture=self.input_architecture,
+            penultimate_normalization=self.penultimate_normalization,
+        )
         self.model = nn.Dense(
             1,
             kernel_init=uniform_init(3e-3),
@@ -111,6 +124,7 @@ class Critic(nn.Module):
 class MultiCritic(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     num: int = 1
+    penultimate_normalization: bool = False
 
     @nn.compact
     def __call__(self, *args, **kwargs):
@@ -123,7 +137,9 @@ class MultiCritic(nn.Module):
             axis_size=self.num,
         )
 
-        return ensemble(self.input_architecture)(*args, **kwargs)
+        return ensemble(self.input_architecture, self.penultimate_normalization)(
+            *args, **kwargs
+        )
 
 
 def get_initialized_actor_critic(
@@ -145,9 +161,11 @@ def get_initialized_actor_critic(
         action_dim=action_dim,
         continuous=continuous,
         squash=squash,
+        penultimate_normalization=network_config.penultimate_normalization,
     )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
+        penultimate_normalization=network_config.penultimate_normalization,
         num=num_critics,
     )
     tx = get_adam_tx(**to_state_dict(optimizer_config))
