@@ -7,8 +7,7 @@ import wandb
 from gymnax import EnvParams
 
 from ajax.agents.AVG.state import AVGConfig
-from ajax.agents.sac.train_sac import make_train
-from ajax.buffers.utils import get_buffer
+from ajax.agents.AVG.train_AVG import make_train
 from ajax.environments.create import prepare_env
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
@@ -36,10 +35,7 @@ class AVG:
         gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = 0.5,
-        buffer_size: int = int(1e6),
-        batch_size: int = 256,
         learning_starts: int = int(1e4),
-        tau: float = 0.005,
         reward_scale: float = 1.0,
         alpha_init: float = 1.0,  # FIXME: check value
         target_entropy_per_dim: float = -1.0,
@@ -57,27 +53,25 @@ class AVG:
             gamma (float): Discount factor for rewards.
             env_params (Optional[EnvParams]): Parameters for the environment.
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            buffer_size (int): Size of the replay buffer.
-            batch_size (int): Batch size for training.
             learning_starts (int): Timesteps before training starts.
-            tau (float): Soft update coefficient for target networks.
             reward_scale (float): Scaling factor for rewards.
             alpha_init (float): Initial value for the temperature parameter.
             target_entropy_per_dim (float): Target entropy per action dimension.
             lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
         self.config = {**locals()}
+        self.config.update({"algo_name": "AVG"})
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=False,
+            normalize_obs=True,
             normalize_reward=False,
             num_envs=num_envs,
             gamma=gamma,
         )
 
         if not check_if_environment_has_continuous_actions(env):
-            raise ValueError("SAC only supports continuous action spaces.")
+            raise ValueError("AVG only supports continuous action spaces.")
 
         self.env_args = EnvironmentConfig(
             env=env,
@@ -108,16 +102,9 @@ class AVG:
         target_entropy = target_entropy_per_dim * action_dim
         self.agent_args = AVGConfig(
             gamma=gamma,
-            tau=tau,
             learning_starts=learning_starts,
             target_entropy=target_entropy,
             reward_scale=reward_scale,
-        )
-
-        self.buffer = get_buffer(
-            buffer_size=buffer_size,
-            batch_size=batch_size,
-            num_envs=num_envs,
         )
 
     @with_wandb_silent
@@ -161,7 +148,6 @@ class AVG:
                 env_args=self.env_args,
                 optimizer_args=self.optimizer_args,
                 network_args=self.network_args,
-                buffer=self.buffer,
                 agent_args=self.agent_args,
                 total_timesteps=num_timesteps,
                 alpha_args=self.alpha_args,
@@ -184,7 +170,7 @@ if __name__ == "__main__":
     log_frequency = 20_000
     chunk_size = 1000
     logging_config = LoggingConfig(
-        "match_SAC_reproducibility",
+        "AVG_tests",
         "test",
         config={
             "debug": False,
@@ -197,7 +183,7 @@ if __name__ == "__main__":
         horizon=10_000,
     )
     env_id = "halfcheetah"
-    sac_agent = AVG(env_id=env_id, learning_starts=int(1e4), batch_size=256)
+    sac_agent = AVG(env_id=env_id, learning_starts=int(1e4))
     sac_agent.train(
         seed=list(range(n_seeds)),
         num_timesteps=int(1e6),

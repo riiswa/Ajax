@@ -1,8 +1,8 @@
 import distrax
 import jax
 import jax.numpy as jnp
-from flax import struct
 
+from ajax.agents.AVG.state import NormalizationInfo
 from ajax.utils import online_normalize
 
 
@@ -17,14 +17,6 @@ class SquashedNormal(distrax.Transformed):
 
     def entropy(self):
         return self.distribution.entropy()
-
-
-@struct.dataclass
-class NormalizationInfo:
-    value: jnp.array
-    count: jnp.array
-    mean: jnp.array
-    mean_2: jnp.array
 
 
 def no_op(x, *args):
@@ -58,7 +50,6 @@ def compute_td_error_scaling(
 ) -> tuple[jnp.array, NormalizationInfo, NormalizationInfo, NormalizationInfo]:
     reward, sigma_reward = _normalize_and_update(reward, square_value=False)
     gamma, sigma_gamma = _normalize_and_update(gamma, square_value=False)
-    # G_return_norm, _ = _normalize_and_update(G_return, square_value=True)
     if_nan = jnp.all(jnp.isnan(G_return.value))
 
     def conditional_replace(new_info, old_info, mask):
@@ -80,7 +71,9 @@ def compute_td_error_scaling(
     # td_error_scaling = jax.lax.cond(
     #     G_return.count > 1, no_op, jnp.ones_like, operand=scaling
     # )
-    td_error_scaling = jnp.where(G_return.count > 1, scaling, jnp.ones_like(scaling))
+    td_error_scaling = jnp.where(
+        G_return.count > 1, scaling, jnp.ones_like(scaling)
+    ).squeeze(0)
 
     return td_error_scaling, reward, gamma, G_return
 

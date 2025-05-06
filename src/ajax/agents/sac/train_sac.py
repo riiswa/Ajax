@@ -533,7 +533,16 @@ def update_target_networks(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "buffer", "gamma", "tau", "action_dim"],
+    static_argnames=[
+        "recurrent",
+        "buffer",
+        "gamma",
+        "tau",
+        "action_dim",
+        "num_critic_updates",
+        "reward_scale",
+        "target_update_frequency",
+    ],
 )
 def update_agent(
     agent_state: SACState,

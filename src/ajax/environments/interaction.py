@@ -5,11 +5,13 @@ import distrax
 import flashbax as fbx
 import jax
 import jax.numpy as jnp
+from flax import struct
 from flax.core import FrozenDict
 from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import init_buffer
+from ajax.environments.utils import get_state_action_shapes
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -17,6 +19,15 @@ from ajax.state import (
     LoadedTrainState,
 )
 from ajax.types import BufferType
+
+
+@struct.dataclass
+class Transition:
+    obs: jnp.ndarray
+    action: jnp.ndarray
+    reward: jnp.ndarray
+    done: jnp.ndarray
+    next_obs: jnp.ndarray
 
 
 @partial(jax.jit, static_argnames=["mode", "env", "env_params"])
@@ -207,7 +218,7 @@ def collect_experience(
     recurrent: bool,
     mode: str,
     env_args: EnvironmentConfig,
-    buffer: BufferType,
+    buffer: Optional[BufferType] = None,
     uniform: bool = False,
 ):
     """Collect experience by interacting with the environment.
@@ -263,28 +274,32 @@ def collect_experience(
         mode,
         env_args.env_params,
     )
-    buffer_state = buffer.add(
-        agent_state.collector_state.buffer_state,
-        {
-            "obs": agent_state.collector_state.last_obs,
-            "action": action,  # if action.ndim == 2 else action[:, None]
-            "reward": reward[:, None],
-            "done": agent_state.collector_state.last_done[:, None],
-            "next_obs": obsv,
-        },
-    )
+    _transition = {
+        "obs": agent_state.collector_state.last_obs,
+        "action": action,  # if action.ndim == 2 else action[:, None]
+        "reward": reward[:, None],
+        "done": agent_state.collector_state.last_done[:, None],
+        "next_obs": obsv,
+    }
+    if buffer is not None:
+        buffer_state = buffer.add(
+            agent_state.collector_state.buffer_state,
+            _transition,
+        )
+    else:
+        transition = Transition(**_transition)
 
     new_collector_state = agent_state.collector_state.replace(
         rng=rng,
         env_state=env_state,
         last_obs=obsv,
-        buffer_state=buffer_state,
+        buffer_state=buffer_state if buffer is not None else None,
         timestep=agent_state.collector_state.timestep + 1,
         last_done=done,
     )
     agent_state = agent_state.replace(collector_state=new_collector_state)
 
-    return agent_state, None
+    return agent_state, transition if buffer is None else None
 
 
 @partial(jax.jit, static_argnames=["mode", "env_args", "buffer"])
@@ -303,6 +318,14 @@ def init_collector_state(
         else reset_key
     )
     last_obs, env_state = reset_env(reset_keys, env_args.env, mode, env_args.env_params)
+    obs_shape, action_shape = get_state_action_shapes(env_args.env, env_args.env_params)
+    transition = Transition(
+        obs=jnp.ones((env_args.num_envs, *obs_shape)),
+        action=jnp.ones((env_args.num_envs, *action_shape)),
+        next_obs=jnp.ones((env_args.num_envs, *obs_shape)),
+        reward=jnp.ones((env_args.num_envs, 1)),
+        done=jnp.ones((env_args.num_envs, 1)),
+    )
     return CollectorState(
         rng=rng,
         env_state=env_state,
@@ -310,6 +333,7 @@ def init_collector_state(
         buffer_state=init_buffer(buffer, env_args) if buffer is not None else None,
         timestep=0,
         last_done=last_done,
+        rollout=transition,
     )
 
 

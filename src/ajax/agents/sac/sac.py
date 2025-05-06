@@ -67,10 +67,11 @@ class SAC:
             lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
         self.config = {**locals()}
+        self.config.update({"algo_name": "SAC"})
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=False,
+            normalize_obs=True,
             normalize_reward=False,
             num_envs=num_envs,
             gamma=gamma,
