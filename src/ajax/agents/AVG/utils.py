@@ -66,11 +66,8 @@ def compute_td_error_scaling(
     # Conditionally replace using where
     G_return = conditional_replace(G_return_norm, G_return, if_nan)
 
-    scaling = jnp.sqrt(sigma_reward**2 + G_return.mean * sigma_gamma)
+    scaling = jnp.sqrt(sigma_reward**2 + G_return.mean * sigma_gamma**2)
 
-    # td_error_scaling = jax.lax.cond(
-    #     G_return.count > 1, no_op, jnp.ones_like, operand=scaling
-    # )
     td_error_scaling = jnp.where(G_return.count > 1, scaling, jnp.ones_like(scaling))
 
     return td_error_scaling, reward, gamma, G_return

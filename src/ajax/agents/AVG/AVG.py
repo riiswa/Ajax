@@ -171,7 +171,7 @@ if __name__ == "__main__":
     chunk_size = 1000
     num_envs = 1
     logging_config = LoggingConfig(
-        "AVG_tests_parallel",
+        "AVG_tests_parallel_fixed",
         "test",
         config={
             "debug": False,

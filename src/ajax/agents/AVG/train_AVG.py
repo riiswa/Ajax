@@ -14,6 +14,7 @@ from jax.tree_util import Partial as partial
 from ajax.agents.AVG.state import AVGConfig, AVGState, NormalizationInfo
 from ajax.agents.AVG.utils import compute_td_error_scaling
 from ajax.environments.interaction import (
+    Transition,
     collect_experience,
     get_pi,
     init_collector_state,
@@ -624,6 +625,36 @@ def get_nan(x):
     return jnp.nan * x
 
 
+def update_AVG_values(
+    agent_state: AVGState, rollout: Transition, agent_args: AVGConfig
+) -> AVGState:
+    done = jnp.logical_or(rollout.terminated, rollout.truncated)
+    reward = agent_state.reward.replace(value=rollout.reward)
+    gamma = agent_state.gamma.replace(value=agent_args.gamma * (1 - done))
+
+    new_G = agent_state.G_return.value + rollout.reward
+
+    temp_G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
+        done.astype("int8").squeeze(-1), no_op, get_nan, new_G
+    )  # set G_return.value to nan if not terminal, for compute_td_error_scaling
+
+    scaling_coef, reward, gamma, G_return = compute_td_error_scaling(
+        reward, gamma, G_return=agent_state.G_return.replace(value=temp_G_value)
+    )
+
+    G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
+        done.astype("int8").squeeze(-1), jnp.zeros_like, no_op, new_G
+    )  # either revert to new_G (from nan) to keep on accumulating, or reset to 0
+    G_return = G_return.replace(value=G_value)
+
+    agent_state = agent_state.replace(
+        reward=reward, gamma=gamma, G_return=G_return, scaling_coef=scaling_coef
+    )
+
+    collector_state = agent_state.collector_state.replace(rollout=rollout)
+    return agent_state.replace(collector_state=collector_state)
+
+
 @partial(
     jax.jit,
     static_argnames=[
@@ -695,32 +726,7 @@ def training_iteration(
         squeeze_dim_0, rollout
     )  # Remove first dim as we only have one transition
 
-    reward = agent_state.reward.replace(value=rollout.reward)
-    new_G = (agent_state.G_return.value + rollout.reward) * (1 - rollout.terminated)
-    done = jnp.logical_or(rollout.terminated, rollout.truncated)
-
-    G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
-        done.astype("int8").squeeze(-1), get_nan, no_op, new_G
-    )
-    G_return = agent_state.G_return.replace(value=G_value)
-
-    gamma = agent_state.gamma.replace(value=agent_args.gamma * (1 - rollout.terminated))
-
-    scaling_coef, reward, gamma, G_return = compute_td_error_scaling(
-        reward, gamma, G_return
-    )
-    G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
-        done.astype("int8").squeeze(-1), jnp.zeros_like, no_op, new_G
-    )
-    # G_return = agent_state.G_return.replace(
-    #     value=jax.lax.select(done.squeeze().astype("int"), jnp.zeros_like(new_G), new_G)
-    # )
-    agent_state = agent_state.replace(
-        reward=reward, gamma=gamma, G_return=G_return, scaling_coef=scaling_coef
-    )
-
-    collector_state = agent_state.collector_state.replace(rollout=rollout)
-    agent_state = agent_state.replace(collector_state=collector_state)
+    agent_state = update_AVG_values(agent_state, rollout, agent_args)
     timestep = agent_state.collector_state.timestep
 
     def do_update(agent_state):
