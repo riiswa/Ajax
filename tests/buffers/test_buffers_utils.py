@@ -57,7 +57,7 @@ def test_init_buffer(buffer_fixture, buffer_state_fixture):
     expected_buffer_size = buffer_size // num_envs
 
     # Check the buffer state structure
-    for key in ["obs", "action", "reward", "done", "next_obs"]:
+    for key in ["obs", "action", "reward", "terminated", "truncated", "next_obs"]:
         assert key in buffer_state.experience.keys()
 
     # Validate shapes
@@ -76,7 +76,12 @@ def test_init_buffer(buffer_fixture, buffer_state_fixture):
         expected_buffer_size,
         1,
     )
-    assert buffer_state.experience["done"].shape == (
+    assert buffer_state.experience["terminated"].shape == (
+        env_args.num_envs,
+        expected_buffer_size,
+        1,
+    )
+    assert buffer_state.experience["truncated"].shape == (
         env_args.num_envs,
         expected_buffer_size,
         1,
@@ -98,13 +103,14 @@ def test_get_batch_from_buffer(buffer_state_fixture):
     key = jax.random.PRNGKey(0)
 
     # Sample a batch from the buffer
-    obs, done, next_obs, reward, action = get_batch_from_buffer(
+    obs, terminated, truncated, next_obs, reward, action = get_batch_from_buffer(
         buffer, buffer_state, key
     )
 
     # Validate shapes of the sampled batch
     assert obs.shape == (batch_size, *observation_shape)
-    assert done.shape == (batch_size, 1)
+    assert terminated.shape == (batch_size, 1)
+    assert truncated.shape == (batch_size, 1)
     assert next_obs.shape == (batch_size, *observation_shape)
     assert reward.shape == (batch_size, 1)
     assert action.shape == (batch_size, *action_shape)

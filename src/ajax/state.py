@@ -27,7 +27,8 @@ class CollectorState:
     rng: jax.Array
     env_state: EnvStateType
     last_obs: jnp.ndarray
-    last_done: jnp.ndarray
+    last_terminated: jnp.ndarray
+    last_truncated: jnp.ndarray
     num_update: int = 0
     timestep: int = 0
     average_reward: float = 0.0

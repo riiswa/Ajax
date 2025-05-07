@@ -71,7 +71,7 @@ class SAC:
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=True,
+            normalize_obs=False,
             normalize_reward=False,
             num_envs=num_envs,
             gamma=gamma,
@@ -181,10 +181,10 @@ class SAC:
 
 if __name__ == "__main__":
     n_seeds = 1
-    log_frequency = 20_000
+    log_frequency = 5_000
     chunk_size = 1000
     logging_config = LoggingConfig(
-        "match_SAC_reproducibility",
+        "match_SAC_reproducibility_truncated",
         "test",
         config={
             "debug": False,

@@ -26,7 +26,8 @@ class Transition:
     obs: jnp.ndarray
     action: jnp.ndarray
     reward: jnp.ndarray
-    done: jnp.ndarray
+    terminated: jnp.ndarray
+    truncated: jnp.ndarray
     next_obs: jnp.ndarray
 
 
@@ -68,7 +69,7 @@ def step_env(
     env: Environment,
     mode: str,
     env_params: Optional[EnvParams] = None,
-) -> Tuple[jax.Array, EnvState, jax.Array, jax.Array, Any]:
+) -> Tuple[jax.Array, EnvState, jax.Array, jax.Array, jax.Array, Any]:
     """
     Perform a step in the environment.
 
@@ -89,6 +90,8 @@ def step_env(
             in_axes=(0, 0, 0, None),
         )(rng, state, action, env_params)
         done = jnp.float_(done)
+        truncated = done
+        terminated = done
     elif mode == "brax":  # ✅ no vmap for brax
         env_state = env.step(state, action)
         obsv, reward, done, info = (
@@ -97,9 +100,13 @@ def step_env(
             env_state.done,
             env_state.info,
         )
+        truncated = env_state.info["truncation"]
+        terminated = done * (1 - truncated)
+
     else:
         raise ValueError(f"Unrecognized mode for step_env {mode}")
-    return obsv, env_state, reward, done, info
+
+    return obsv, env_state, reward, terminated, truncated, info
 
 
 @partial(
@@ -240,7 +247,10 @@ def collect_experience(
     agent_action, agent_state = get_action_and_new_agent_state(
         agent_state,
         agent_state.collector_state.last_obs,
-        agent_state.collector_state.last_done,
+        jnp.logical_or(
+            agent_state.collector_state.last_terminated,
+            agent_state.collector_state.last_truncated,
+        ),
         recurrent=recurrent,
     )
     uniform_action = jax.random.uniform(
@@ -266,7 +276,7 @@ def collect_experience(
     rng_step = (
         jax.random.split(step_key, env_args.num_envs) if mode == "gymnax" else step_key
     )
-    obsv, env_state, reward, done, info = step_env(
+    obsv, env_state, reward, terminated, truncated, info = step_env(
         rng_step,
         agent_state.collector_state.env_state,
         action,
@@ -278,7 +288,8 @@ def collect_experience(
         "obs": agent_state.collector_state.last_obs,
         "action": action,  # if action.ndim == 2 else action[:, None]
         "reward": reward[:, None],
-        "done": agent_state.collector_state.last_done[:, None],
+        "terminated": agent_state.collector_state.last_terminated[:, None],
+        "truncated": agent_state.collector_state.last_truncated[:, None],
         "next_obs": obsv,
     }
     if buffer is not None:
@@ -295,7 +306,8 @@ def collect_experience(
         last_obs=obsv,
         buffer_state=buffer_state if buffer is not None else None,
         timestep=agent_state.collector_state.timestep + 1,
-        last_done=done,
+        last_terminated=terminated,
+        last_truncated=truncated,
     )
     agent_state = agent_state.replace(collector_state=new_collector_state)
 
@@ -324,7 +336,8 @@ def init_collector_state(
         action=jnp.ones((env_args.num_envs, *action_shape)),
         next_obs=jnp.ones((env_args.num_envs, *obs_shape)),
         reward=jnp.ones((env_args.num_envs, 1)),
-        done=jnp.ones((env_args.num_envs, 1)),
+        terminated=jnp.ones((env_args.num_envs, 1)),
+        truncated=jnp.ones((env_args.num_envs, 1)),
     )
     return CollectorState(
         rng=rng,
@@ -332,7 +345,8 @@ def init_collector_state(
         last_obs=last_obs,
         buffer_state=init_buffer(buffer, env_args) if buffer is not None else None,
         timestep=0,
-        last_done=last_done,
+        last_terminated=last_done,
+        last_truncated=last_done,
         rollout=transition,
     )
 

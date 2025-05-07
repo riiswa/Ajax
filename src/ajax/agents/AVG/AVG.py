@@ -191,7 +191,7 @@ if __name__ == "__main__":
         chunk_size=chunk_size,
         horizon=10_000,
     )
-    env_id = "halfcheetah"
+    env_id = "Pendulum-v1"
     sac_agent = AVG(env_id=env_id, learning_starts=int(1e4))
     sac_agent.train(
         seed=list(range(n_seeds)),
