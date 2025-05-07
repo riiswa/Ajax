@@ -159,7 +159,7 @@ class ClipActionBrax(BraxWrapper):
         """Step the environment while clipping the action first"""
         # action = jnp.clip(action, self.env.action_space.low, self.env.action_space.high)
         action = jnp.clip(action, self.low, self.high)
-        return self._env.step(state, action)
+        return self.env.step(state, action)
 
 
 class TransformObservation(GymnaxWrapper):
@@ -436,7 +436,7 @@ class NormalizeVecRewardBrax(BraxWrapper):
 
     def reset(self, key):
         """Reset the environment and return the normalized reward"""
-        env_state = self._env.reset(key)
+        env_state = self.env.reset(key)
         batch_count = env_state.obs.shape[0]
 
         state = NormalizeVecRewEnvStateBrax(
@@ -463,7 +463,7 @@ class NormalizeVecRewardBrax(BraxWrapper):
             wrapped_state.metrics,
             wrapped_state.info,
         )
-        env_state = self._env.step(unwrapped_state, action)
+        env_state = self.env.step(unwrapped_state, action)
         obs, reward, done = (
             env_state.obs,
             env_state.reward,
@@ -524,7 +524,7 @@ class BraxToGymnasium(BraxWrapper):
         assert not check_wrapped_env_has_autoreset(
             env
         ), "Environment should not autoreset"
-        self._env = env
+        self.env = env
         env_name = str(env.unwrapped.__class__).split(".")[-1][:-2]
         self.metadata = {
             "name": env_name,
@@ -540,14 +540,14 @@ class BraxToGymnasium(BraxWrapper):
         return gymnasium_spaces.Box(
             low=-1,
             high=1,
-            shape=(self._env.action_size,),
+            shape=(self.env.action_size,),
         )
 
     @property
     def observation_space(self):
         """Dynamically adjust state space depending on params."""
         return gymnasium_spaces.Box(
-            low=-jnp.inf, high=jnp.inf, shape=(self._env.observation_size,)
+            low=-jnp.inf, high=jnp.inf, shape=(self.env.observation_size,)
         )
 
     def _seed(self, seed: Optional[int] = None):
@@ -558,7 +558,7 @@ class BraxToGymnasium(BraxWrapper):
         self, action: core.ActType
     ) -> Tuple[core.ObsType, float, bool, bool, Dict[Any, Any]]:
         """Step environment, follow new step API."""
-        self.env_state = self._env.step(self.env_state, action)  # type: ignore[has-type]
+        self.env_state = self.env.step(self.env_state, action)  # type: ignore[has-type]
         obsv, reward, done, info = (
             self.env_state.obs,
             self.env_state.reward,
@@ -584,7 +584,7 @@ class BraxToGymnasium(BraxWrapper):
         if seed is not None:
             self._seed(seed)
         self.rng, reset_key = jax.random.split(self.rng)
-        self.env_state = self._env.reset(reset_key)
+        self.env_state = self.env.reset(reset_key)
         return self.env_state.obs, {}
 
     def render(self, mode="human") -> None:

@@ -396,7 +396,7 @@ def test_normalize_vec_observation_2(brax_env):
     state = wrapper.reset(key)
 
     # Check initial normalization
-    assert state.info["count"] == 1
+    assert jnp.all(state.info["count"] == 1)
 
     assert jnp.allclose(state.info["mean"], jnp.array([1.0, -1.0]))
     assert jnp.allclose(state.obs, jnp.zeros(2))  # normalized should be 0
@@ -408,7 +408,7 @@ def test_normalize_vec_observation_2(brax_env):
     expected_mean_2 = jnp.array([0.0, 0.0])
     expected_obs = jnp.array([0.0, 0.0])
 
-    assert state.info["count"] == 2
+    assert jnp.all(state.info["count"] == 2)
     assert jnp.allclose(state.info["mean"], expected_mean)
     assert jnp.allclose(state.info["mean_2"], expected_mean_2)
     assert jnp.allclose(state.obs, expected_obs)
@@ -419,7 +419,7 @@ def test_normalize_vec_observation_2(brax_env):
     expected_mean_2 = jnp.array([0.0, 0.0])
     expected_obs = jnp.array([0.0, 0.0])
 
-    assert state.info["count"] == 3
+    assert jnp.all(state.info["count"] == 3)
     assert jnp.allclose(state.info["mean"], expected_mean)
     assert jnp.allclose(state.info["mean_2"], expected_mean_2)
     assert jnp.allclose(state.obs, expected_obs)

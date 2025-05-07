@@ -571,7 +571,13 @@ def test_make_train(env_config):
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
     agent_args = AVGConfig(gamma=0.99, target_entropy=-1.0)
     total_timesteps = 1000
-
+    agent_state = init_AVG(
+        key,
+        env_args=env_config,
+        optimizer_args=optimizer_args,
+        network_args=network_args,
+        alpha_args=alpha_args,
+    )
     # Create the train function
     train_fn = make_train(
         env_args=env_config,
@@ -584,7 +590,7 @@ def test_make_train(env_config):
     )
 
     # Run the train function
-    final_state = train_fn(key)
+    final_state = train_fn(agent_state)
 
     # Validate the final state
     assert isinstance(final_state, AVGState), "Final state should be of type AVGState."
