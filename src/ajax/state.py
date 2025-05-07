@@ -32,6 +32,7 @@ class CollectorState:
     timestep: int = 0
     average_reward: float = 0.0
     buffer_state: Optional[fbx.flat_buffer.TrajectoryBufferState] = None
+    rollout: Optional[jnp.ndarray] = None
 
 
 @struct.dataclass
@@ -83,6 +84,7 @@ class NetworkConfig:
     critic_architecture: Tuple[str]
     lstm_hidden_size: Optional[int] = None
     squash: bool = False
+    penultimate_normalization: bool = False
 
 
 @struct.dataclass

@@ -309,3 +309,45 @@ def test_predict_value(real_env_config, actor_architecture, critic_architecture)
     assert not jnp.allclose(
         predicted_value[0], predicted_value[1]
     ), "Predicted values for both critics are identical."
+
+
+def test_encoder_penultimate_normalization():
+    input_architecture = ["4", "relu", "2"]
+    encoder = Encoder(
+        input_architecture=input_architecture, penultimate_normalization=True
+    )
+
+    key = jax.random.PRNGKey(0)
+    input_data = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+
+    params = encoder.init(key, input_data)
+    output = encoder.apply(params, input_data)
+
+    # Check that the output is normalized to a unit vector
+    norms = jnp.linalg.norm(output, axis=1)
+    assert jnp.allclose(norms, 1.0), "Output is not normalized to a unit vector"
+
+
+def test_encoder_penultimate_normalization_gradients():
+    input_architecture = ["4", "relu", "2"]
+    encoder = Encoder(
+        input_architecture=input_architecture, penultimate_normalization=True
+    )
+
+    key = jax.random.PRNGKey(0)
+    input_data = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+
+    params = encoder.init(key, input_data)
+
+    def loss_fn(params, input_data):
+        output = encoder.apply(params, input_data)
+        return jnp.sum(output)  # Example loss function
+
+    grads = jax.grad(loss_fn)(params, input_data)
+
+    # Check that gradients exist for the parameters of the encoder
+    assert grads is not None, "Gradients are not flowing through the encoder."
+    assert "params" in grads, "Gradients for parameters are missing."
+    assert all(
+        jnp.any(jnp.abs(g) > 0) for g in jax.tree_util.tree_leaves(grads["params"])
+    ), "Some gradients are zero, indicating no flow through _l2_normalize."

@@ -8,25 +8,17 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from brax.envs import Env as BraxEnv
-from brax.envs.base import State, Wrapper
+from brax.envs.base import State
+from brax.envs.base import Wrapper as BraxWrapper
 from flax import struct
 from gymnasium import core
 from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
 
+from ajax.utils import online_normalize
+
 
 class GymnaxWrapper:
-    """Base class for Gymnax wrappers."""
-
-    def __init__(self, env: environment.Environment):
-        self._env = env
-
-    # provide proxy access to regular attributes of wrapped object
-    def __getattr__(self, name):
-        return getattr(self._env, name)
-
-
-class BraxWrapper:
     """Base class for Gymnax wrappers."""
 
     def __init__(self, env: environment.Environment):
@@ -167,7 +159,7 @@ class ClipActionBrax(BraxWrapper):
         """Step the environment while clipping the action first"""
         # action = jnp.clip(action, self.env.action_space.low, self.env.action_space.high)
         action = jnp.clip(action, self.low, self.high)
-        return self._env.step(state, action)
+        return self.env.step(state, action)
 
 
 class TransformObservation(GymnaxWrapper):
@@ -212,197 +204,124 @@ class VecEnv(GymnaxWrapper):
         self.step = jax.vmap(self._env.step, in_axes=(0, 0, 0, None))
 
 
-@struct.dataclass
-class NormalizeVecObsEnvState:
-    """Carry variables necessary for online normalization"""
+# @struct.dataclass
+# class NormalizeVecObsEnvState:
+#     """Carry variables necessary for online normalization"""
 
-    mean: jnp.ndarray
-    var: jnp.ndarray
-    count: float
-    env_state: State
-
-
-@struct.dataclass
-class NormalizeVecObsEnvStateBrax:
-    """Carry variables necessary for online normalization"""
-
-    mean: jnp.ndarray
-    var: jnp.ndarray
-    count: float
-    pipeline_state: Optional[State]
-    obs: jax.Array
-    reward: jax.Array
-    done: jax.Array
-    metrics: Dict[str, jax.Array] = struct.field(default_factory=dict)
-    info: Dict[str, Any] = struct.field(default_factory=dict)
+#     mean: jnp.ndarray
+#     var: jnp.ndarray
+#     count: float
+#     env_state: State
 
 
-class NormalizeVecObservation(GymnaxWrapper):
-    """Wrapper for online normalization of observations"""
+# @struct.dataclass
+# class NormalizeVecObsEnvStateBrax:
+#     """Carry variables necessary for online normalization"""
 
-    def reset(self, key, params=None):
-        """Reset the environment and return the normalized obs"""
-        obs, state = self._env.reset(key, params)
-        state = NormalizeVecObsEnvState(
-            mean=jnp.zeros_like(obs),
-            var=jnp.ones_like(obs),
-            count=1e-4,
-            env_state=state,
-        )
-        batch_mean = jnp.mean(obs, axis=0)
-        batch_var = jnp.var(obs, axis=0)
-        batch_count = obs.shape[0]
-
-        delta = batch_mean - state.mean
-        tot_count = state.count + batch_count
-
-        new_mean = state.mean + delta * batch_count / tot_count
-        m_a = state.var * state.count
-        m_b = batch_var * batch_count
-        M2 = m_a + m_b + jnp.square(delta) * state.count * batch_count / tot_count
-        new_var = M2 / tot_count
-        new_count = tot_count
-
-        state = NormalizeVecObsEnvState(
-            mean=new_mean,
-            var=new_var,
-            count=new_count,
-            env_state=state.env_state,
-        )
-
-        return (obs - state.mean) / jnp.sqrt(state.var + 1e-8), state
-
-    def step(self, key, state, action, params=None):
-        """Step the environment and return the normalized obs"""
-        obs, env_state, reward, done, info = self._env.step(
-            key,
-            state.env_state,
-            action,
-            params,
-        )
-
-        batch_mean = jnp.mean(obs, axis=0)
-        batch_var = jnp.var(obs, axis=0)
-        batch_count = obs.shape[0]
-
-        delta = batch_mean - state.mean
-        tot_count = state.count + batch_count
-
-        new_mean = state.mean + delta * batch_count / tot_count
-        m_a = state.var * state.count
-        m_b = batch_var * batch_count
-        M2 = m_a + m_b + jnp.square(delta) * state.count * batch_count / tot_count
-        new_var = M2 / tot_count
-        new_count = tot_count
-
-        state = NormalizeVecObsEnvState(
-            mean=new_mean,
-            var=new_var,
-            count=new_count,
-            env_state=env_state,
-        )
-        return (
-            (obs - state.mean) / jnp.sqrt(state.var + 1e-8),
-            state,
-            reward,
-            done,
-            info,
-        )
+#     mean: jnp.ndarray
+#     var: jnp.ndarray
+#     count: float
+#     pipeline_state: Optional[State]
+#     obs: jax.Array
+#     reward: jax.Array
+#     done: jax.Array
+#     metrics: Dict[str, jax.Array] = struct.field(default_factory=dict)
+#     info: Dict[str, Any] = struct.field(default_factory=dict)
 
 
 class NormalizeVecObservationBrax(BraxWrapper):
     """Wrapper for online normalization of observations"""
 
+    def __init__(self, env: BraxEnv):
+        super().__init__(env)
+
     def reset(self, key):
-        """Reset the environment and return the normalized obs"""
-        env_state = self._env.reset(key)
-        obs = env_state.obs
+        state = self.env.reset(key)
 
-        wrapped_state = NormalizeVecObsEnvStateBrax(
-            mean=jnp.zeros_like(obs),
-            var=jnp.ones_like(obs),
-            count=1e-4,
-            reward=env_state.reward,
-            done=env_state.done,
-            metrics=env_state.metrics,
-            pipeline_state=env_state.pipeline_state,
-            info=env_state.info,
-            obs=env_state.obs,
+        # Initialize normalization stats
+        count = jnp.zeros((state.obs.shape[0],))
+        mean = jnp.zeros_like(state.obs)
+        mean_2 = jnp.zeros_like(state.obs)
+
+        # Normalize
+        obs, count, mean, mean_2, std = online_normalize(state.obs, count, mean, mean_2)
+
+        # Replace state immutably
+        state = state.replace(
+            obs=obs,
+            info={
+                "count": count,
+                "mean": mean,
+                "mean_2": mean_2,
+                "std": std,
+                **state.info,
+            },
         )
-        batch_mean = jnp.mean(obs, axis=0)
-        batch_var = jnp.var(obs, axis=0)
-        batch_count = obs.shape[0]
+        return state
 
-        delta = batch_mean - wrapped_state.mean
-        tot_count = wrapped_state.count + batch_count
+    def step(self, state, action):
+        count = state.info["count"]
+        mean = state.info["mean"]
+        mean_2 = state.info["mean_2"]
 
-        new_mean = wrapped_state.mean + delta * batch_count / tot_count
-        m_a = wrapped_state.var * wrapped_state.count
-        m_b = batch_var * batch_count
-        M2 = (
-            m_a
-            + m_b
-            + jnp.square(delta) * wrapped_state.count * batch_count / tot_count
+        state = self.env.step(state, action)
+
+        obs, count, mean, mean_2, std = online_normalize(state.obs, count, mean, mean_2)
+
+        # Replace the whole info dict immutably
+        state = state.replace(
+            obs=obs,
+            info={
+                "count": count,
+                "mean": mean,
+                "mean_2": mean_2,
+                "std": std,
+                **state.info,
+            },
         )
-        new_var = M2 / tot_count
-        new_count = tot_count
-        new_wrapped_state = NormalizeVecObsEnvStateBrax(
-            mean=new_mean,
-            var=new_var,
-            count=new_count,
-            reward=env_state.reward,
-            done=env_state.done,
-            metrics=env_state.metrics,
-            pipeline_state=env_state.pipeline_state,
-            info=env_state.info,
-            obs=(env_state.obs - new_mean) / jnp.sqrt(new_var + 1e-8),
+        return state
+
+
+@struct.dataclass
+class NormalizedEnvState:
+    env_state: environment.EnvState
+    count: jnp.ndarray
+    mean: jnp.ndarray
+    mean_2: jnp.ndarray
+    std: jnp.ndarray
+
+
+class NormalizeVecObservation(GymnaxWrapper):
+    def reset(self, key, params=None):
+        obs, env_state = self._env.reset(key, params)
+
+        # Initialize normalization state
+        count = jnp.array(0)
+        mean = jnp.zeros_like(obs)
+        mean_2 = jnp.zeros_like(obs)
+        std = jnp.ones_like(obs)
+
+        # Normalize obs
+        obs, count, mean, mean_2, std = online_normalize(obs, count, mean, mean_2)
+
+        state = NormalizedEnvState(env_state, count, mean, mean_2, std)
+        return obs, state
+
+    def step(self, key, state, action, params=None):
+        # Extract normalization state
+        count, mean, mean_2 = state.count, state.mean, state.mean_2
+
+        # Step through env
+        obs, env_state, reward, done, info = self._env.step(
+            key, state.env_state, action, params
         )
 
-        return new_wrapped_state
+        # Normalize observation
+        obs, count, mean, mean_2, std = online_normalize(obs, count, mean, mean_2)
 
-    def step(self, wrapped_state, action):
-        """Step the environment and return the normalized obs"""
-        unwrapped_state = State(
-            wrapped_state.pipeline_state,
-            wrapped_state.obs,
-            wrapped_state.reward,
-            wrapped_state.done,
-            wrapped_state.metrics,
-            wrapped_state.info,
-        )
-        env_state = self._env.step(unwrapped_state, action)
-        obs = env_state.obs
-        batch_mean = jnp.mean(obs, axis=0)
-        batch_var = jnp.var(obs, axis=0)
-        batch_count = obs.shape[0]
-
-        delta = batch_mean - wrapped_state.mean
-        tot_count = wrapped_state.count + batch_count
-
-        new_mean = wrapped_state.mean + delta * batch_count / tot_count
-        m_a = wrapped_state.var * wrapped_state.count
-        m_b = batch_var * batch_count
-        M2 = (
-            m_a
-            + m_b
-            + jnp.square(delta) * wrapped_state.count * batch_count / tot_count
-        )
-        new_var = M2 / tot_count
-        new_count = tot_count
-
-        new_wrapped_state = NormalizeVecObsEnvStateBrax(
-            mean=new_mean,
-            var=new_var,
-            count=new_count,
-            reward=env_state.reward,
-            done=env_state.done,
-            metrics=env_state.metrics,
-            pipeline_state=env_state.pipeline_state,
-            info=env_state.info,
-            obs=(env_state.obs - wrapped_state.mean)
-            / jnp.sqrt(wrapped_state.var + 1e-8),
-        )
-        return new_wrapped_state
+        # Repack new state
+        state = NormalizedEnvState(env_state, count, mean, mean_2, std)
+        return obs, state, reward, done, info
 
 
 @struct.dataclass
@@ -517,7 +436,7 @@ class NormalizeVecRewardBrax(BraxWrapper):
 
     def reset(self, key):
         """Reset the environment and return the normalized reward"""
-        env_state = self._env.reset(key)
+        env_state = self.env.reset(key)
         batch_count = env_state.obs.shape[0]
 
         state = NormalizeVecRewEnvStateBrax(
@@ -544,7 +463,7 @@ class NormalizeVecRewardBrax(BraxWrapper):
             wrapped_state.metrics,
             wrapped_state.info,
         )
-        env_state = self._env.step(unwrapped_state, action)
+        env_state = self.env.step(unwrapped_state, action)
         obs, reward, done = (
             env_state.obs,
             env_state.reward,
@@ -605,7 +524,7 @@ class BraxToGymnasium(BraxWrapper):
         assert not check_wrapped_env_has_autoreset(
             env
         ), "Environment should not autoreset"
-        self._env = env
+        self.env = env
         env_name = str(env.unwrapped.__class__).split(".")[-1][:-2]
         self.metadata = {
             "name": env_name,
@@ -621,14 +540,14 @@ class BraxToGymnasium(BraxWrapper):
         return gymnasium_spaces.Box(
             low=-1,
             high=1,
-            shape=(self._env.action_size,),
+            shape=(self.env.action_size,),
         )
 
     @property
     def observation_space(self):
         """Dynamically adjust state space depending on params."""
         return gymnasium_spaces.Box(
-            low=-jnp.inf, high=jnp.inf, shape=(self._env.observation_size,)
+            low=-jnp.inf, high=jnp.inf, shape=(self.env.observation_size,)
         )
 
     def _seed(self, seed: Optional[int] = None):
@@ -639,7 +558,7 @@ class BraxToGymnasium(BraxWrapper):
         self, action: core.ActType
     ) -> Tuple[core.ObsType, float, bool, bool, Dict[Any, Any]]:
         """Step environment, follow new step API."""
-        self.env_state = self._env.step(self.env_state, action)  # type: ignore[has-type]
+        self.env_state = self.env.step(self.env_state, action)  # type: ignore[has-type]
         obsv, reward, done, info = (
             self.env_state.obs,
             self.env_state.reward,
@@ -665,7 +584,7 @@ class BraxToGymnasium(BraxWrapper):
         if seed is not None:
             self._seed(seed)
         self.rng, reset_key = jax.random.split(self.rng)
-        self.env_state = self._env.reset(reset_key)
+        self.env_state = self.env.reset(reset_key)
         return self.env_state.obs, {}
 
     def render(self, mode="human") -> None:
@@ -681,10 +600,10 @@ def split(x):
     return jax.random.split(x)[0]
 
 
-class AutoResetWrapper(Wrapper):
+class AutoResetWrapper(BraxWrapper):
     """Automatically resets Brax envs that are done, sampling a new random seed for initialization at each reset. This seed is propagated through info["rng"]"""
 
-    def __init__(self, env: Wrapper):
+    def __init__(self, env: BraxWrapper):
         super().__init__(env)
         self.n_envs = env.reset(jax.random.PRNGKey(0)).obs.shape[0]
         self.single_env = self.n_envs == 1
