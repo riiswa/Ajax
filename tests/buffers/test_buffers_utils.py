@@ -57,7 +57,7 @@ def test_init_buffer(buffer_fixture, buffer_state_fixture):
     expected_buffer_size = buffer_size // num_envs
 
     # Check the buffer state structure
-    for key in ["obs", "action", "reward", "terminated", "truncated", "next_obs"]:
+    for key in ["obs", "action", "reward", "terminated", "truncated"]:
         assert key in buffer_state.experience.keys()
 
     # Validate shapes
@@ -85,11 +85,6 @@ def test_init_buffer(buffer_fixture, buffer_state_fixture):
         env_args.num_envs,
         expected_buffer_size,
         1,
-    )
-    assert buffer_state.experience["next_obs"].shape == (
-        env_args.num_envs,
-        expected_buffer_size,
-        *observation_shape,
     )
 
 
