@@ -240,7 +240,7 @@ class NormalizeVecObservationBrax(BraxWrapper):
         state = self.env.reset(key)
 
         # Initialize normalization stats
-        count = jnp.zeros((state.obs.shape[0],))
+        count = jnp.zeros((state.obs.shape[0], 1))
         mean = jnp.zeros_like(state.obs)
         mean_2 = jnp.zeros_like(state.obs)
 

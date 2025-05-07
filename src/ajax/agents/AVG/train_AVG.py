@@ -157,6 +157,7 @@ def init_AVG(
         reward=init_norm_info,
         gamma=init_norm_info,
         G_return=init_norm_info,
+        scaling_coef=jnp.ones((env_args.num_envs, 1)),
     )
 
 
@@ -237,7 +238,9 @@ def value_loss_function(
     assert q_target.shape == log_probs.shape
     # total_loss = jnp.square(q_preds - target_q[None, ...]).mean()
 
-    total_loss = (jnp.mean((q_pred - target_q) ** 2) / scaling_coef).squeeze()
+    total_loss = jnp.mean(
+        ((q_pred - target_q) ** 2) / scaling_coef
+    ).squeeze()  # TODO : make sure scaling coef is properly computed for parallel environments, that it has proper mean count etc
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
         q_pred=q_pred.mean().flatten(),
@@ -695,17 +698,23 @@ def training_iteration(
     reward = agent_state.reward.replace(value=rollout.reward)
     new_G = (agent_state.G_return.value + rollout.reward) * (1 - rollout.terminated)
     done = jnp.logical_or(rollout.terminated, rollout.truncated)
-    G_return = agent_state.G_return.replace(
-        value=jax.lax.cond(done.squeeze().astype("int"), get_nan, no_op, new_G)
+
+    G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
+        done.astype("int8").squeeze(-1), get_nan, no_op, new_G
     )
+    G_return = agent_state.G_return.replace(value=G_value)
+
     gamma = agent_state.gamma.replace(value=agent_args.gamma * (1 - rollout.terminated))
 
     scaling_coef, reward, gamma, G_return = compute_td_error_scaling(
         reward, gamma, G_return
     )
-    G_return = agent_state.G_return.replace(
-        value=jax.lax.select(done.squeeze().astype("int"), jnp.zeros_like(new_G), new_G)
+    G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
+        done.astype("int8").squeeze(-1), jnp.zeros_like, no_op, new_G
     )
+    # G_return = agent_state.G_return.replace(
+    #     value=jax.lax.select(done.squeeze().astype("int"), jnp.zeros_like(new_G), new_G)
+    # )
     agent_state = agent_state.replace(
         reward=reward, gamma=gamma, G_return=G_return, scaling_coef=scaling_coef
     )
@@ -773,7 +782,7 @@ def training_iteration(
             #     agent_state, chunk_size=chunk_size, horizon=horizon
             # )
             metrics_to_log = {
-                "timestep": timestep,
+                "timestep": timestep * env_args.num_envs,
                 "Eval/episodic mean reward": eval_rewards,
                 "Eval/episodic entropy": eval_entropy,
                 # "Train/episodic mean reward": episodic_mean_reward,
@@ -860,8 +869,16 @@ def make_train(
         start_async_logging()
 
     @partial(jax.jit)
-    def train(agent_state, index: Optional[int] = None):
+    def train(key, index: Optional[int] = None):
         """Train the SAC agent."""
+
+        agent_state = init_AVG(
+            key=key,
+            env_args=env_args,
+            optimizer_args=optimizer_args,
+            network_args=network_args,
+            alpha_args=alpha_args,
+        )
 
         num_updates = total_timesteps // env_args.num_envs
         _, action_shape = get_state_action_shapes(env_args.env, env_args.env_params)

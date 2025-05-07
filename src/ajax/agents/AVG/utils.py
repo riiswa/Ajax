@@ -71,9 +71,7 @@ def compute_td_error_scaling(
     # td_error_scaling = jax.lax.cond(
     #     G_return.count > 1, no_op, jnp.ones_like, operand=scaling
     # )
-    td_error_scaling = jnp.where(
-        G_return.count > 1, scaling, jnp.ones_like(scaling)
-    ).squeeze(0)
+    td_error_scaling = jnp.where(G_return.count > 1, scaling, jnp.ones_like(scaling))
 
     return td_error_scaling, reward, gamma, G_return
 
