@@ -11,6 +11,7 @@ from brax.envs import Env as BraxEnv
 from brax.envs.base import State
 from brax.envs.base import Wrapper as BraxWrapper
 from flax import struct
+from flax.serialization import to_state_dict
 from gymnasium import core
 from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
@@ -282,16 +283,21 @@ class NormalizeVecObservationBrax(BraxWrapper):
         return state
 
 
-@struct.dataclass
-class NormalizedEnvState:
-    env_state: environment.EnvState
-    count: jnp.ndarray
-    mean: jnp.ndarray
-    mean_2: jnp.ndarray
-    std: jnp.ndarray
-
-
 class NormalizeVecObservation(GymnaxWrapper):
+    def __init__(self, env):
+        """Set gamma"""
+        super().__init__(env)
+        BaseState = env.reset(key=jax.random.PRNGKey(0))[1].__class__
+
+        @struct.dataclass
+        class NormalizedEnvState(BaseState):  # Inherit from the actual env_state class
+            count: jnp.ndarray
+            mean: jnp.ndarray
+            mean_2: jnp.ndarray
+            std: jnp.ndarray
+
+        self.state_class = NormalizedEnvState
+
     def reset(self, key, params=None):
         obs, env_state = self._env.reset(key, params)
 
@@ -303,8 +309,14 @@ class NormalizeVecObservation(GymnaxWrapper):
 
         # Normalize obs
         obs, count, mean, mean_2, std = online_normalize(obs, count, mean, mean_2)
+        state = self.state_class(
+            **to_state_dict(env_state),
+            count=count,
+            mean=mean,
+            mean_2=mean_2,
+            std=std,
+        )
 
-        state = NormalizedEnvState(env_state, count, mean, mean_2, std)
         return obs, state
 
     def step(self, key, state, action, params=None):
@@ -312,15 +324,15 @@ class NormalizeVecObservation(GymnaxWrapper):
         count, mean, mean_2 = state.count, state.mean, state.mean_2
 
         # Step through env
-        obs, env_state, reward, done, info = self._env.step(
-            key, state.env_state, action, params
-        )
+        obs, env_state, reward, done, info = self._env.step(key, state, action, params)
 
         # Normalize observation
         obs, count, mean, mean_2, std = online_normalize(obs, count, mean, mean_2)
 
         # Repack new state
-        state = NormalizedEnvState(env_state, count, mean, mean_2, std)
+        state = self.state_class(
+            **to_state_dict(env_state), count=count, mean=mean, mean_2=mean_2, std=std
+        )
         return obs, state, reward, done, info
 
 

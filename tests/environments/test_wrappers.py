@@ -30,14 +30,15 @@ class MockGymnaxEnv:
 
     def reset(self, key, params=None):
         obs = jnp.array([1.0, -1.0])
-        state = {"step_count": 0}
+        state = MockGymnaxState(step_count=0)
         return obs, state
 
     def step(self, key, state, action, params=None):
         obs = jnp.array([1.0, -1.0])
         reward = 2.0
-        done = state["step_count"] >= 5
+        done = state.step_count >= 5
         info = {}
+        state = MockGymnaxState(step_count=state.step_count + 1)
         return obs, state, reward, done, info
 
 
@@ -66,6 +67,13 @@ class MockBraxEnv:
             pipeline_state=None,
             info={},
         )
+
+
+@struct.dataclass
+class MockGymnaxState:
+    """Mock Brax state for testing."""
+
+    step_count: jnp.ndarray
 
 
 @struct.dataclass

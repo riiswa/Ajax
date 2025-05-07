@@ -89,9 +89,9 @@ def step_env(
             env.step,
             in_axes=(0, 0, 0, None),
         )(rng, state, action, env_params)
-        done = jnp.float_(done)
-        truncated = done
-        terminated = done
+        truncated = env_state.time >= env_params.max_steps_in_episode  # type: ignore[union-attr]
+        terminated = done * (1 - truncated)
+        terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
     elif mode == "brax":  # ✅ no vmap for brax
         env_state = env.step(state, action)
         obsv, reward, done, info = (
