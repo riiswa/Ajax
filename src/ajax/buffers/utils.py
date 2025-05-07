@@ -49,7 +49,8 @@ def init_buffer(
             "obs": obsv,  # Single observation (shape: [observation_size])
             "action": action,  # Single action (shape: [action_size])
             "reward": reward,  # Single reward (shape: [1])
-            "done": done,  # Single done flag (shape: [1])
+            "terminated": done,  # Single done flag (shape: [1])
+            "truncated": done,  # Single done flag (shape: [1])
             "next_obs": obsv,  # Next observation (same shape as 'obs')
         },
     )
@@ -74,6 +75,7 @@ def get_batch_from_buffer(buffer, buffer_state, key):
     act = batch.first["action"]
     rew = batch.first["reward"]
     next_obs = batch.first["next_obs"]
-    done = batch.first["done"]
+    terminated = batch.first["terminated"]
+    truncated = batch.first["truncated"]
 
-    return obs, done, next_obs, rew, act
+    return obs, terminated, truncated, next_obs, rew, act

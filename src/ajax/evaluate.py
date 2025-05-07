@@ -79,7 +79,7 @@ def evaluate(
             obs,
             done if recurrent else None,
         )
-        obs, state, new_rewards, new_done, _ = step_env(
+        obs, state, new_rewards, new_terminated, new_truncated, _ = step_env(
             step_keys,
             state,
             actions.squeeze(0) if recurrent else actions,
@@ -87,6 +87,7 @@ def evaluate(
             mode,
             env_params,
         )
+        new_done = jnp.logical_or(new_terminated, new_truncated)
 
         still_running = 1 - done  # only count unfinished envs
         step_count += still_running.mean()
@@ -120,8 +121,11 @@ def compute_episodic_mean_reward(agent_state, chunk_size=1000, horizon=10_000):
     start_idx = current_index - horizon
 
     reward_buffer = buffer_state.experience["reward"]  # [num_envs, T, 1]
-    done_buffer = buffer_state.experience["done"]  # [num_envs, T, 1]
-
+    terminated_buffer = buffer_state.experience["terminated"]  # [num_envs, T, 1]
+    truncated_buffer = buffer_state.experience["truncated"]  # [num_envs, T, 1]
+    done_buffer = jnp.logical_or(
+        terminated_buffer, truncated_buffer
+    )  # TODO : check correctness
     num_envs = reward_buffer.shape[0]
     num_chunks = math.ceil(horizon / chunk_size)
 

@@ -87,7 +87,8 @@ def avg_state(env_config):
         action=jnp.ones((env_config.num_envs, *action_shape)),
         next_obs=jnp.ones((env_config.num_envs, *obs_shape)),
         reward=jnp.ones((env_config.num_envs, 1)),
-        done=jnp.ones((env_config.num_envs, 1)),
+        terminated=jnp.ones((env_config.num_envs, 1)),
+        truncated=jnp.ones((env_config.num_envs, 1)),
     )
     collector_state = avg_state.collector_state.replace(rollout=transition)
     avg_state = avg_state.replace(collector_state=collector_state)

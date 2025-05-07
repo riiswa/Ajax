@@ -534,6 +534,7 @@ def update_agent(
         Tuple[AVGState, None]: Updated agent state.
     """
     transition = agent_state.collector_state.rollout
+    done = jnp.logical_or(transition.terminated, transition.truncated)  # type: ignore[union-attr]
 
     # Update Q functions
     def critic_update_step(carry, _):
@@ -543,7 +544,7 @@ def update_agent(
             observations=transition.obs,
             actions=transition.action,
             next_observations=transition.next_obs,
-            dones=transition.done,
+            dones=done,
             agent_state=agent_state,
             recurrent=recurrent,
             rewards=transition.reward,
@@ -563,7 +564,7 @@ def update_agent(
     # Update policy
     agent_state, aux_policy = update_policy(
         observations=transition.obs,  # type: ignore[union-attr]
-        done=transition.done,  # type: ignore[union-attr]
+        done=done,  # type: ignore[union-attr]
         agent_state=agent_state,
         recurrent=recurrent,
     )
@@ -575,7 +576,7 @@ def update_agent(
         observations=transition.obs,  # type: ignore[union-attr]
         target_entropy=target_entropy,
         recurrent=recurrent,
-        dones=transition.done,  # type: ignore[union-attr]
+        dones=done,  # type: ignore[union-attr]
     )
 
     aux = AuxiliaryLogs(
@@ -692,19 +693,18 @@ def training_iteration(
     )  # Remove first dim as we only have one transition
 
     reward = agent_state.reward.replace(value=rollout.reward)
-    new_G = (agent_state.G_return.value + rollout.reward) * (1 - rollout.done)
+    new_G = (agent_state.G_return.value + rollout.reward) * (1 - rollout.terminated)
+    done = jnp.logical_or(rollout.terminated, rollout.truncated)
     G_return = agent_state.G_return.replace(
-        value=jax.lax.cond(rollout.done.squeeze().astype("int"), get_nan, no_op, new_G)
+        value=jax.lax.cond(done.squeeze().astype("int"), get_nan, no_op, new_G)
     )
-    gamma = agent_state.gamma.replace(value=agent_args.gamma * (1 - rollout.done))
+    gamma = agent_state.gamma.replace(value=agent_args.gamma * (1 - rollout.terminated))
 
     scaling_coef, reward, gamma, G_return = compute_td_error_scaling(
         reward, gamma, G_return
     )
     G_return = agent_state.G_return.replace(
-        value=jax.lax.select(
-            rollout.done.squeeze().astype("int"), jnp.zeros_like(new_G), new_G
-        )
+        value=jax.lax.select(done.squeeze().astype("int"), jnp.zeros_like(new_G), new_G)
     )
     agent_state = agent_state.replace(
         reward=reward, gamma=gamma, G_return=G_return, scaling_coef=scaling_coef

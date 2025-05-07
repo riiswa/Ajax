@@ -134,9 +134,10 @@ def test_step_env_gymnax(gymnax_env):
     rng = jax.random.split(jax.random.PRNGKey(0), NUM_ENVS)  # Simulate 4 environments
     obs, env_state = reset_env(rng, env, mode="gymnax", env_params=env_params)
     action = jnp.zeros((NUM_ENVS,))  # Dummy actions
-    obs, env_state, reward, done, info = step_env(
+    obs, env_state, reward, terminated, truncated, info = step_env(
         rng, env_state, action, env, mode="gymnax", env_params=env_params
     )
+    done = jnp.logical_or(terminated, truncated)
     assert obs.shape == (NUM_ENVS, *env.obs_shape)  # Ensure batch size matches
     assert reward.shape == (NUM_ENVS,)
     assert done.shape == (NUM_ENVS,)
@@ -148,9 +149,10 @@ def test_step_env_brax(brax_env):
     rng = jax.random.PRNGKey(0)
     obs, env_state = reset_env(rng, env, mode="brax")
     action = jnp.zeros((NUM_ENVS,))  # Dummy actions
-    obs, env_state, reward, done, info = step_env(
+    obs, env_state, reward, terminated, truncated, info = step_env(
         rng, env_state, action, env, mode="brax"
     )
+    done = jnp.logical_or(terminated, truncated)
     assert obs.shape == (NUM_ENVS, env.observation_size)
     assert reward.shape == (NUM_ENVS,)
     assert done.shape == (NUM_ENVS,)
@@ -220,7 +222,8 @@ def test_get_action_and_new_agent_state(
         rng=rng,
         env_state=env_state,
         last_obs=obs,
-        last_done=jnp.zeros((NUM_ENVS,)),
+        last_terminated=jnp.zeros((NUM_ENVS,)),
+        last_truncated=jnp.zeros((NUM_ENVS,)),
     )
 
     if recurrent:
@@ -258,17 +261,19 @@ def test_step_env_scan_compatibility(gymnax_env):
     def scan_step(carry, _):
         rng, env_state = carry
         action = jnp.zeros((NUM_ENVS,))  # Dummy actions
-        obs, env_state, reward, done, info = step_env(
+        obs, env_state, reward, terminated, truncated, info = step_env(
             rng, env_state, action, env, "gymnax", env_params
         )
-        return (rng, env_state), (obs, reward, done)
+        return (rng, env_state), (obs, reward, terminated, truncated)
 
-    (_, final_env_state), (obs_seq, reward_seq, done_seq) = jax.lax.scan(
-        scan_step, (rngs, env_state), None, length=10
+    (_, final_env_state), (obs_seq, reward_seq, terminated_seq, truncated_seq) = (
+        jax.lax.scan(scan_step, (rngs, env_state), None, length=10)
     )
+
     assert obs_seq.shape == (10, NUM_ENVS, *env.obs_shape)
     assert reward_seq.shape == (10, NUM_ENVS)
-    assert done_seq.shape == (10, NUM_ENVS)
+    assert terminated_seq.shape == (10, NUM_ENVS)
+    assert truncated_seq.shape == (10, NUM_ENVS)
 
 
 def test_step_env_scan_compatibility_brax(brax_env):
@@ -280,17 +285,18 @@ def test_step_env_scan_compatibility_brax(brax_env):
     def scan_step(carry, _):
         rng, env_state = carry
         action = jnp.zeros((NUM_ENVS,))  # Dummy actions
-        obs, env_state, reward, done, info = step_env(
+        obs, env_state, reward, terminated, truncated, info = step_env(
             rng, env_state, action, env, "brax"
         )
-        return (rng, env_state), (obs, reward, done)
+        return (rng, env_state), (obs, reward, terminated, truncated)
 
-    (_, final_env_state), (obs_seq, reward_seq, done_seq) = jax.lax.scan(
-        scan_step, (rng, env_state), None, length=10
+    (_, final_env_state), (obs_seq, reward_seq, terminated_seq, truncated_seq) = (
+        jax.lax.scan(scan_step, (rng, env_state), None, length=10)
     )
     assert obs_seq.shape == (10, NUM_ENVS, env.observation_size)
     assert reward_seq.shape == (10, NUM_ENVS)
-    assert done_seq.shape == (10, NUM_ENVS)
+    assert terminated_seq.shape == (10, NUM_ENVS)
+    assert truncated_seq.shape == (10, NUM_ENVS)
 
 
 def test_step_env_scan_compatibility_recurrent(gymnax_env):
@@ -302,19 +308,26 @@ def test_step_env_scan_compatibility_recurrent(gymnax_env):
     def scan_step(carry, _):
         rng, env_state, hidden_state = carry
         action = jnp.zeros((NUM_ENVS,))  # Dummy actions
-        obs, env_state, reward, done, info = step_env(
+        obs, env_state, reward, terminated, truncated, info = step_env(
             rng, env_state, action, env, "gymnax", env_params
         )
         hidden_state = hidden_state + 1  # Simulate hidden state update
-        return (rng, env_state, hidden_state), (obs, reward, done)
+        return (rng, env_state, hidden_state), (obs, reward, terminated, truncated)
 
     hidden_state = jnp.zeros((NUM_ENVS, 2))  # Dummy hidden state
-    (_, final_env_state, final_hidden_state), (obs_seq, reward_seq, done_seq) = (
-        jax.lax.scan(scan_step, (rngs, env_state, hidden_state), None, length=10)
-    )
+    (
+        (_, final_env_state, final_hidden_state),
+        (
+            obs_seq,
+            reward_seq,
+            terminated_seq,
+            truncated_seq,
+        ),
+    ) = jax.lax.scan(scan_step, (rngs, env_state, hidden_state), None, length=10)
     assert obs_seq.shape == (10, NUM_ENVS, *env.obs_shape)
     assert reward_seq.shape == (10, NUM_ENVS)
-    assert done_seq.shape == (10, NUM_ENVS)
+    assert terminated_seq.shape == (10, NUM_ENVS)
+    assert truncated_seq.shape == (10, NUM_ENVS)
     assert final_hidden_state.shape == (NUM_ENVS, 2)
 
 
@@ -331,7 +344,8 @@ def test_get_action_and_new_agent_state_recurrent_without_done(
         rng=rng,
         env_state=env_state,
         last_obs=obs,
-        last_done=jnp.zeros((NUM_ENVS,)),
+        last_terminated=jnp.zeros((NUM_ENVS,)),
+        last_truncated=jnp.zeros((NUM_ENVS,)),
     )
 
     agent_state = BaseAgentState(
@@ -367,7 +381,8 @@ def test_collect_experience_non_recurrent_discrete(
         rng=rng,
         env_state=env_state,
         last_obs=obs,
-        last_done=jnp.zeros((NUM_ENVS,)),  # Added last_done
+        last_terminated=jnp.zeros((NUM_ENVS,)),
+        last_truncated=jnp.zeros((NUM_ENVS,)),  # Added last_done
         buffer_state=buffer_state,
     )
 
@@ -388,7 +403,7 @@ def test_collect_experience_non_recurrent_discrete(
     )
 
     assert updated_agent_state.collector_state.last_obs.shape == obs.shape
-    assert updated_agent_state.collector_state.last_done.shape == (NUM_ENVS,)
+    assert updated_agent_state.collector_state.last_terminated.shape == (NUM_ENVS,)
 
 
 @pytest.mark.skip
@@ -412,7 +427,8 @@ def test_collect_experience_non_recurrent_continuous(
         rng=rng,
         env_state=env_state,
         last_obs=obs,
-        last_done=jnp.zeros((NUM_ENVS,)),  # Added last_done
+        last_terminated=jnp.zeros((NUM_ENVS,)),
+        last_truncated=jnp.zeros((NUM_ENVS,)),  # Added last_done
         buffer_state=buffer_state,
     )
 
@@ -433,7 +449,7 @@ def test_collect_experience_non_recurrent_continuous(
     )
 
     assert updated_agent_state.collector_state.last_obs.shape == obs.shape
-    assert updated_agent_state.collector_state.last_done.shape == (NUM_ENVS,)
+    assert updated_agent_state.collector_state.last_terminated.shape == (NUM_ENVS,)
 
 
 @pytest.mark.skip
@@ -455,7 +471,8 @@ def test_collect_experience_recurrent(mock_recurrent_actor_state, gymnax_env):
         rng=rng,
         env_state=env_state,
         last_obs=obs,
-        last_done=jnp.zeros((NUM_ENVS,)),  # Added last_done
+        last_terminated=jnp.zeros((NUM_ENVS,)),
+        last_truncated=jnp.zeros((NUM_ENVS,)),  # Added last_done
         buffer_state=buffer_state,
     )
 
@@ -480,7 +497,7 @@ def test_collect_experience_recurrent(mock_recurrent_actor_state, gymnax_env):
     )
 
     assert updated_agent_state.collector_state.last_obs.shape == obs.shape
-    assert updated_agent_state.collector_state.last_done.shape == (NUM_ENVS,)
+    assert updated_agent_state.collector_state.last_terminated.shape == (NUM_ENVS,)
     assert updated_agent_state.actor_state.hidden_state.shape == (NUM_ENVS, 2)
 
 
@@ -498,7 +515,9 @@ def test_init_collector_state_gymnax(gymnax_env):
     collector_state = init_collector_state(rng, env_args, mode="gymnax", buffer=buffer)
 
     assert collector_state.last_obs.shape == (NUM_ENVS, *env.obs_shape)
-    assert collector_state.last_done.shape == (NUM_ENVS,)  # Ensure last_done is present
+    assert collector_state.last_terminated.shape == (
+        NUM_ENVS,
+    )  # Ensure last_done is present
     assert collector_state.buffer_state is not None
     assert collector_state.timestep == 0
 
@@ -517,6 +536,8 @@ def test_init_collector_state_brax(brax_env):
     collector_state = init_collector_state(rng, env_args, mode="brax", buffer=buffer)
 
     assert collector_state.last_obs.shape == (NUM_ENVS, env.observation_size)
-    assert collector_state.last_done.shape == (NUM_ENVS,)  # Ensure last_done is present
+    assert collector_state.last_terminated.shape == (
+        NUM_ENVS,
+    )  # Ensure last_done is present
     assert collector_state.buffer_state is not None
     assert collector_state.timestep == 0

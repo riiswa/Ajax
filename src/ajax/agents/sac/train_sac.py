@@ -577,12 +577,15 @@ def update_agent(
     # Sample buffer
 
     sample_key, rng = jax.random.split(agent_state.rng)
-    observations, dones, next_observations, rewards, actions = get_batch_from_buffer(
-        buffer,
-        agent_state.collector_state.buffer_state,
-        sample_key,
+    observations, terminated, truncated, next_observations, rewards, actions = (
+        get_batch_from_buffer(
+            buffer,
+            agent_state.collector_state.buffer_state,
+            sample_key,
+        )
     )
     agent_state = agent_state.replace(rng=rng)
+    dones = jnp.logical_or(terminated, truncated)
 
     # Update Q functions
     def critic_update_step(carry, _):
