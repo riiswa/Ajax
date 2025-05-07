@@ -862,8 +862,6 @@ def make_train(
     @partial(jax.jit)
     def train(agent_state, index: Optional[int] = None):
         """Train the SAC agent."""
-        
-        
 
         num_updates = total_timesteps // env_args.num_envs
         _, action_shape = get_state_action_shapes(env_args.env, env_args.env_params)

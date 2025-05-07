@@ -5,9 +5,9 @@ import jax
 import jax.numpy as jnp
 import wandb
 from gymnax import EnvParams
-from functools import partial
+
 from ajax.agents.AVG.state import AVGConfig
-from ajax.agents.AVG.train_AVG import make_train
+from ajax.agents.AVG.train_AVG import init_AVG, make_train
 from ajax.environments.create import prepare_env
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
@@ -20,7 +20,7 @@ from ajax.logging.wandb_logging import (
 )
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import EnvType
-from ajax.agents.AVG.train_AVG import init_AVG
+
 
 class AVG:
     """Action Value Gradient (AVG)"""
@@ -143,7 +143,8 @@ class AVG:
 
         def init_state(seed):
             key = jax.random.PRNGKey(seed)
-            return init_AVG(key,
+            return init_AVG(
+                key,
                 env_args=self.env_args,
                 optimizer_args=self.optimizer_args,
                 network_args=self.network_args,
@@ -151,7 +152,6 @@ class AVG:
             )
 
         def set_agent_state_and_train(agent_state, index):
-            
             train_jit = make_train(
                 env_args=self.env_args,
                 optimizer_args=self.optimizer_args,
@@ -175,7 +175,7 @@ class AVG:
 
 
 if __name__ == "__main__":
-    n_seeds = 100
+    n_seeds = 1
     log_frequency = 20_000
     chunk_size = 1000
     logging_config = LoggingConfig(
