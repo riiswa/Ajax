@@ -290,7 +290,6 @@ def collect_experience(
         "reward": reward[:, None],
         "terminated": agent_state.collector_state.last_terminated[:, None],
         "truncated": agent_state.collector_state.last_truncated[:, None],
-        "next_obs": obsv,
     }
     if buffer is not None:
         buffer_state = buffer.add(
@@ -298,6 +297,9 @@ def collect_experience(
             _transition,
         )
     else:
+        _transition.update(
+            {"next_obs": obsv}
+        )  # not included if using buffer to reduce weight, as flashbax can rebuild it.
         transition = Transition(**_transition)
 
     new_collector_state = agent_state.collector_state.replace(
