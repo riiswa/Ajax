@@ -197,13 +197,13 @@ if __name__ == "__main__":
         log_frequency=log_frequency,
         chunk_size=chunk_size,
         horizon=10_000,
-        use_tensorboard=True,
-        use_wandb=False,
+        use_tensorboard=False,
+        use_wandb=True,
     )
     env_id = "halfcheetah"
     sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
     sac_agent.train(
         seed=list(range(n_seeds)),
-        num_timesteps=int(1e6),
+        num_timesteps=int(1e5),
         logging_config=logging_config,
     )
