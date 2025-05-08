@@ -62,7 +62,8 @@ def sac_state(env_config):
     return init_sac(
         key=key,
         env_args=env_config,
-        optimizer_args=optimizer_args,
+        actor_optimizer_args=optimizer_args,
+        critic_optimizer_args=optimizer_args,
         network_args=network_args,
         alpha_args=alpha_args,
         buffer=buffer,

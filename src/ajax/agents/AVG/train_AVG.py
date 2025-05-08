@@ -103,7 +103,8 @@ def create_alpha_train_state(
 def init_AVG(
     key: jax.Array,
     env_args: EnvironmentConfig,
-    optimizer_args: OptimizerConfig,
+    actor_optimizer_args: OptimizerConfig,
+    critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     alpha_args: AlphaConfig,
 ) -> AVGState:
@@ -129,7 +130,8 @@ def init_AVG(
     actor_state, critic_state = get_initialized_actor_critic(
         key=init_key,
         env_config=env_args,
-        optimizer_config=optimizer_args,
+        actor_optimizer_config=actor_optimizer_args,
+        critic_optimizer_config=critic_optimizer_args,
         network_config=network_args,
         continuous=True,
         action_value=True,
@@ -258,6 +260,7 @@ def policy_loss_function(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
+    actions: jax.Array,
     observations: jax.Array,
     dones: Optional[jax.Array],
     recurrent: bool,
@@ -287,8 +290,7 @@ def policy_loss_function(
         done=dones,
         recurrent=recurrent,
     )
-    sample_key, rng = jax.random.split(rng)
-    actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
+    log_probs = pi.log_prob(actions)
 
     # Predict Q-values from critics
     q_pred = predict_value(
@@ -411,6 +413,7 @@ def update_value_functions(
 )
 def update_policy(
     agent_state: AVGState,
+    actions: jax.Array,
     observations: jax.Array,
     done: Optional[jax.Array],
     recurrent: bool,
@@ -437,6 +440,7 @@ def update_policy(
         agent_state.actor_state.params,
         agent_state.actor_state,
         agent_state.critic_state,
+        actions,
         observations,
         done,
         recurrent,
@@ -567,6 +571,7 @@ def update_agent(
 
     # Update policy
     agent_state, aux_policy = update_policy(
+        actions=transition.action,  # type: ignore[union-attr]
         observations=transition.obs,  # type: ignore[union-attr]
         done=done,  # type: ignore[union-attr]
         agent_state=agent_state,
@@ -842,7 +847,8 @@ def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[s
 
 def make_train(
     env_args: EnvironmentConfig,
-    optimizer_args: OptimizerConfig,
+    actor_optimizer_args: OptimizerConfig,
+    critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     agent_args: AVGConfig,
     alpha_args: AlphaConfig,
@@ -881,7 +887,8 @@ def make_train(
         agent_state = init_AVG(
             key=key,
             env_args=env_args,
-            optimizer_args=optimizer_args,
+            actor_optimizer_args=actor_optimizer_args,
+            critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
             alpha_args=alpha_args,
         )

@@ -145,7 +145,8 @@ class MultiCritic(nn.Module):
 def get_initialized_actor_critic(
     key: jax.Array,
     env_config: EnvironmentConfig,
-    optimizer_config: OptimizerConfig,
+    actor_optimizer_config: OptimizerConfig,
+    critic_optimizer_config: OptimizerConfig,
     network_config: NetworkConfig,
     continuous: bool = False,
     action_value: bool = False,
@@ -168,7 +169,8 @@ def get_initialized_actor_critic(
         penultimate_normalization=network_config.penultimate_normalization,
         num=num_critics,
     )
-    tx = get_adam_tx(**to_state_dict(optimizer_config))
+    actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
+    critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))
     actor_key, critic_key = jax.random.split(key)
     observation_shape, action_shape = get_state_action_shapes(
         env_config.env,
@@ -180,7 +182,7 @@ def get_initialized_actor_critic(
         init_x=init_obs,
         network=actor,
         key=actor_key,
-        tx=tx,
+        tx=actor_tx,
         recurrent=network_config.lstm_hidden_size is not None,
         lstm_hidden_size=network_config.lstm_hidden_size,
         num_envs=env_config.num_envs,
@@ -190,7 +192,7 @@ def get_initialized_actor_critic(
         init_x=jnp.hstack([init_obs, init_action]) if action_value else init_obs,
         network=critic,
         key=critic_key,
-        tx=tx,
+        tx=critic_tx,
         recurrent=network_config.lstm_hidden_size is not None,
         lstm_hidden_size=network_config.lstm_hidden_size,
         num_envs=env_config.num_envs,

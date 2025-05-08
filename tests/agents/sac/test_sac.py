@@ -13,12 +13,20 @@ def test_sac_initialization():
     for expected_attr, expected_type in zip(
         (
             "env_args",
-            "optimizer_args",
+            "actor_optimizer_args",
+            "critic_optimizer_args",
             "network_args",
             "alpha_args",
             "buffer",
         ),
-        (EnvironmentConfig, OptimizerConfig, NetworkConfig, AlphaConfig, BufferType),
+        (
+            EnvironmentConfig,
+            OptimizerConfig,
+            OptimizerConfig,
+            NetworkConfig,
+            AlphaConfig,
+            BufferType,
+        ),
     ):
         assert hasattr(sac_agent, expected_attr)
         assert isinstance(getattr(sac_agent, expected_attr), expected_type)

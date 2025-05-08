@@ -29,15 +29,17 @@ class AVG:
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
         num_envs: int = 1,
-        learning_rate: float = 3e-4,
-        actor_architecture=("256", "relu", "256", "relu"),
-        critic_architecture=("256", "relu", "256", "relu"),
-        gamma: float = 0.99,
+        actor_learning_rate: float = 3e-4,
+        critic_learning_rate: float = 8.7e-4,
+        alpha_learning_rate: float = 3e-4,
+        actor_architecture=("256", "leaky_relu", "256", "leaky_relu"),
+        critic_architecture=("256", "leaky_relu", "256", "leaky_relu"),
+        gamma: float = 0.95,
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = 0.5,
         learning_starts: int = int(1e4),
         reward_scale: float = 1.0,
-        alpha_init: float = 1.0,  # FIXME: check value
+        alpha_init: float = 0.05,
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
     ) -> None:
@@ -81,7 +83,7 @@ class AVG:
         )
 
         self.alpha_args = AlphaConfig(
-            learning_rate=learning_rate,
+            learning_rate=alpha_learning_rate,
             alpha_init=alpha_init,
         )
 
@@ -93,8 +95,13 @@ class AVG:
             penultimate_normalization=True,
         )
 
-        self.optimizer_args = OptimizerConfig(
-            learning_rate=learning_rate,
+        self.actor_optimizer_args = OptimizerConfig(
+            learning_rate=actor_learning_rate,
+            max_grad_norm=max_grad_norm,
+            clipped=max_grad_norm is not None,
+        )
+        self.critic_optimizer_args = OptimizerConfig(
+            learning_rate=critic_learning_rate,
             max_grad_norm=max_grad_norm,
             clipped=max_grad_norm is not None,
         )
@@ -146,7 +153,8 @@ class AVG:
 
             train_jit = make_train(
                 env_args=self.env_args,
-                optimizer_args=self.optimizer_args,
+                actor_optimizer_args=self.actor_optimizer_args,
+                critic_optimizer_args=self.critic_optimizer_args,
                 network_args=self.network_args,
                 agent_args=self.agent_args,
                 total_timesteps=num_timesteps,
@@ -171,7 +179,7 @@ if __name__ == "__main__":
     chunk_size = 1000
     num_envs = 1
     logging_config = LoggingConfig(
-        "AVG_tests_parallel_fixed",
+        "AVG_tests",
         "test",
         config={
             "debug": False,

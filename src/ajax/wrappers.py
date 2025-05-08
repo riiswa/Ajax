@@ -237,6 +237,7 @@ class NormalizeVecObservationBrax(BraxWrapper):
         super().__init__(env)
 
     def reset(self, key):
+        jax.debug.print("Reset called")
         state = self.env.reset(key)
 
         # Initialize normalization stats

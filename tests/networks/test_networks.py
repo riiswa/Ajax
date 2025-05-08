@@ -178,7 +178,8 @@ def test_get_initialized_actor_critic(
     actor_state, critic_state = get_initialized_actor_critic(
         key=key,
         env_config=real_env_config,
-        optimizer_config=optimizer_config,
+        actor_optimizer_config=optimizer_config,
+        critic_optimizer_config=optimizer_config,
         network_config=network_config,
         continuous=False,
         action_value=True,
@@ -231,7 +232,8 @@ def test_get_initialized_actor_critic_continuous(
     actor_state, critic_state = get_initialized_actor_critic(
         key=key,
         env_config=fast_env_config,
-        optimizer_config=optimizer_config,
+        actor_optimizer_config=optimizer_config,
+        critic_optimizer_config=optimizer_config,
         network_config=network_config,
         continuous=True,
         action_value=False,
@@ -281,7 +283,8 @@ def test_predict_value(real_env_config, actor_architecture, critic_architecture)
     actor_state, critic_state = get_initialized_actor_critic(
         key=key,
         env_config=real_env_config,
-        optimizer_config=optimizer_config,
+        actor_optimizer_config=optimizer_config,
+        critic_optimizer_config=optimizer_config,
         network_config=network_config,
         continuous=False,
         action_value=True,

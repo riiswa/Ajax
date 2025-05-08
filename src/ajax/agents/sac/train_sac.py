@@ -104,7 +104,8 @@ def create_alpha_train_state(
 def init_sac(
     key: jax.Array,
     env_args: EnvironmentConfig,
-    optimizer_args: OptimizerConfig,
+    actor_optimizer_args: OptimizerConfig,
+    critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     alpha_args: AlphaConfig,
     buffer: BufferType,
@@ -132,7 +133,8 @@ def init_sac(
     actor_state, critic_state = get_initialized_actor_critic(
         key=init_key,
         env_config=env_args,
-        optimizer_config=optimizer_args,
+        actor_optimizer_config=actor_optimizer_args,
+        critic_optimizer_config=critic_optimizer_args,
         network_config=network_args,
         continuous=True,
         action_value=True,
@@ -854,7 +856,8 @@ def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[s
 
 def make_train(
     env_args: EnvironmentConfig,
-    optimizer_args: OptimizerConfig,
+    actor_optimizer_args: OptimizerConfig,
+    critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     buffer: BufferType,
     agent_args: SACConfig,
@@ -894,7 +897,8 @@ def make_train(
         agent_state = init_sac(
             key=key,
             env_args=env_args,
-            optimizer_args=optimizer_args,
+            actor_optimizer_args=actor_optimizer_args,
+            critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
             alpha_args=alpha_args,
             buffer=buffer,
