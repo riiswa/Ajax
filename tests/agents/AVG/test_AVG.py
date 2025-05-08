@@ -2,7 +2,6 @@ import pytest
 
 from ajax.agents.AVG.AVG import AVG
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
-from ajax.types import BufferType
 
 
 def test_sac_initialization():
@@ -13,11 +12,18 @@ def test_sac_initialization():
     for expected_attr, expected_type in zip(
         (
             "env_args",
-            "optimizer_args",
+            "actor_optimizer_args",
+            "critic_optimizer_args",
             "network_args",
             "alpha_args",
         ),
-        (EnvironmentConfig, OptimizerConfig, NetworkConfig, AlphaConfig, BufferType),
+        (
+            EnvironmentConfig,
+            OptimizerConfig,
+            OptimizerConfig,
+            NetworkConfig,
+            AlphaConfig,
+        ),
     ):
         assert hasattr(sac_agent, expected_attr)
         assert isinstance(getattr(sac_agent, expected_attr), expected_type)

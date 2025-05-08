@@ -17,12 +17,13 @@ from ajax.agents.AVG.train_AVG import (
     policy_loss_function,
     training_iteration,
     update_agent,
+    update_AVG_values,
     update_policy,
     update_temperature,
     update_value_functions,
     value_loss_function,
 )
-from ajax.environments.interaction import Transition
+from ajax.environments.interaction import Transition, get_pi
 from ajax.environments.utils import get_state_action_shapes
 from ajax.state import (
     AlphaConfig,
@@ -75,7 +76,8 @@ def avg_state(env_config):
     avg_state = init_AVG(
         key=key,
         env_args=env_config,
-        optimizer_args=optimizer_args,
+        actor_optimizer_args=optimizer_args,
+        critic_optimizer_args=optimizer_args,
         network_args=network_args,
         alpha_args=alpha_args,
     )
@@ -216,21 +218,31 @@ def test_value_loss_function_with_value_and_grad(env_config, avg_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_policy_loss_function(env_config, avg_state):
-    observation_shape, _ = get_state_action_shapes(
+    observation_shape, action_shape = get_state_action_shapes(
         env_config.env, env_config.env_params
     )
 
     # Mock inputs for the policy loss function
     rng = jax.random.PRNGKey(1)
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
+    observations = jnp.ones((env_config.num_envs, *observation_shape))
+    # actions = jnp.ones((env_config.num_envs, *action_shape))
     dones = jnp.zeros((env_config.num_envs, 1))
     alpha = jnp.array(0.1)
+    pi, _ = get_pi(
+        actor_state=avg_state.actor_state,
+        actor_params=avg_state.actor_state.params,
+        obs=observations,
+        done=dones,
+        recurrent=False,
+    )
+    actions = pi.sample(seed=rng)
 
     # Call the policy loss function
     loss, aux = policy_loss_function(
         actor_params=avg_state.actor_state.params,
         actor_state=avg_state.actor_state,
         critic_states=avg_state.critic_state,
+        actions=actions,
         observations=observations,
         dones=dones,
         recurrent=False,
@@ -259,6 +271,14 @@ def test_policy_loss_function_with_value_and_grad(env_config, avg_state):
     observations = jnp.zeros((env_config.num_envs, *observation_shape))
     dones = jnp.zeros((env_config.num_envs, 1))
     alpha = jnp.array(0.1)
+    pi, _ = get_pi(
+        actor_state=avg_state.actor_state,
+        actor_params=avg_state.actor_state.params,
+        obs=observations,
+        done=dones,
+        recurrent=False,
+    )
+    actions = pi.sample(seed=rng)
 
     # Define a wrapper for policy_loss_function
     def loss_fn(actor_params):
@@ -266,6 +286,7 @@ def test_policy_loss_function_with_value_and_grad(env_config, avg_state):
             actor_params=actor_params,
             actor_state=avg_state.actor_state,
             critic_states=avg_state.critic_state,
+            actions=actions,
             observations=observations,
             dones=dones,
             recurrent=False,
@@ -422,12 +443,21 @@ def test_update_policy(env_config, avg_state):
     # Mock inputs for the update_policy function
     observations = jnp.zeros((env_config.num_envs, *observation_shape))
     dones = jnp.zeros((env_config.num_envs, 1))
+    pi, _ = get_pi(
+        actor_state=avg_state.actor_state,
+        actor_params=avg_state.actor_state.params,
+        obs=observations,
+        done=dones,
+        recurrent=False,
+    )
+    actions = pi.sample(seed=jax.random.PRNGKey(0))
 
     # Save the original actor params for comparison
     original_actor_params = avg_state.actor_state.params
 
     # Call the update_policy function
     updated_state, aux = update_policy(
+        actions=actions,
         observations=observations,
         done=dones,
         agent_state=avg_state,
@@ -572,17 +602,11 @@ def test_make_train(env_config):
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
     agent_args = AVGConfig(gamma=0.99, target_entropy=-1.0)
     total_timesteps = 1000
-    agent_state = init_AVG(
-        key,
-        env_args=env_config,
-        optimizer_args=optimizer_args,
-        network_args=network_args,
-        alpha_args=alpha_args,
-    )
     # Create the train function
     train_fn = make_train(
         env_args=env_config,
-        optimizer_args=optimizer_args,
+        actor_optimizer_args=optimizer_args,
+        critic_optimizer_args=optimizer_args,
         network_args=network_args,
         agent_args=agent_args,
         total_timesteps=total_timesteps,
@@ -591,7 +615,7 @@ def test_make_train(env_config):
     )
 
     # Run the train function
-    final_state = train_fn(agent_state)
+    final_state = train_fn(key)
 
     # Validate the final state
     assert isinstance(final_state, AVGState), "Final state should be of type AVGState."
@@ -602,3 +626,93 @@ def test_make_train(env_config):
         final_state.collector_state is not None
     ), "Collector state should not be None."
     assert final_state.alpha is not None, "Alpha state should not be None."
+
+
+@pytest.mark.parametrize(
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
+)
+def test_update_AVG_values(env_config, avg_state):
+    # Mock inputs for the update_AVG_values function
+    observation_shape, action_shape = get_state_action_shapes(
+        env_config.env, env_config.env_params
+    )
+    rollout = Transition(
+        obs=jnp.ones((env_config.num_envs, *observation_shape)),
+        action=jnp.ones((env_config.num_envs, *action_shape)),
+        next_obs=jnp.ones((env_config.num_envs, *observation_shape)),
+        reward=jnp.array([[1.0]]),
+        terminated=jnp.array([[0.0]]),
+        truncated=jnp.array([[0.0]]),
+    )
+    agent_args = AVGConfig(gamma=0.99, target_entropy=-1.0)
+
+    # Call the update_AVG_values function
+    updated_state = update_AVG_values(avg_state, rollout, agent_args)
+
+    # Validate the updated state
+    assert updated_state is not None, "Updated state should not be None."
+    assert (
+        updated_state.reward.count[0] > avg_state.reward.count[0]
+    ), "Reward count should have been incremented."
+    assert (
+        updated_state.gamma.count[0] > avg_state.gamma.count[0]
+    ), "Gamma count should have been incremented."
+    assert not (
+        updated_state.G_return.count[0] > avg_state.G_return.count[0]
+    ), "G_return count should not have been incremented."
+    assert jnp.allclose(
+        updated_state.reward.mean, jnp.array([[1.0]])
+    ), "Reward mean should match the rollout reward."
+    assert jnp.allclose(
+        updated_state.gamma.mean, jnp.array([[0.99]])
+    ), "Gamma mean should match the agent_args gamma."
+    assert jnp.allclose(
+        updated_state.G_return.value, jnp.array([[1.0]])
+    ), "G_return value should match the cumulative reward."
+
+    assert jnp.allclose(
+        updated_state.G_return.mean, jnp.array([[0.0]])
+    ), "G_return mean should not match the cumulative reward."
+
+
+@pytest.mark.parametrize(
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
+)
+def test_update_AVG_values_terminal(env_config, avg_state):
+    # Mock inputs for the update_AVG_values function
+    observation_shape, action_shape = get_state_action_shapes(
+        env_config.env, env_config.env_params
+    )
+    rollout = Transition(
+        obs=jnp.ones((env_config.num_envs, *observation_shape)),
+        action=jnp.ones((env_config.num_envs, *action_shape)),
+        next_obs=jnp.ones((env_config.num_envs, *observation_shape)),
+        reward=jnp.array([[1.0]]),
+        terminated=jnp.array([[1.0]]),
+        truncated=jnp.array([[0.0]]),
+    )
+    agent_args = AVGConfig(gamma=0.99, target_entropy=-1.0)
+
+    # Call the update_AVG_values function
+    updated_state = update_AVG_values(avg_state, rollout, agent_args)
+
+    # Validate the updated state
+    assert updated_state is not None, "Updated state should not be None."
+    assert (
+        updated_state.reward.count[0] > avg_state.reward.count[0]
+    ), "Reward count should have been incremented."
+    assert (
+        updated_state.gamma.count[0] > avg_state.gamma.count[0]
+    ), "Gamma count should have been incremented."
+    assert (
+        updated_state.G_return.count[0] > avg_state.G_return.count[0]
+    ), "G_return count should have been incremented."
+    assert jnp.allclose(
+        updated_state.reward.mean, jnp.array([[1.0]])
+    ), "Reward mean should match the rollout reward."
+    assert jnp.allclose(
+        updated_state.gamma.mean, jnp.array([[0.0]])
+    ), "Gamma mean should match the agent_args gamma."
+    assert jnp.allclose(
+        updated_state.G_return.mean, jnp.array([[1.0]])
+    ), "G_return mean should match the cumulative reward."

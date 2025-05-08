@@ -23,7 +23,7 @@ class AVGState(BaseAgentState):
     reward: NormalizationInfo
     gamma: NormalizationInfo
     G_return: NormalizationInfo
-    scaling_coef: jnp.ndarray = struct.field(default_factory=lambda: jnp.ones(1))
+    scaling_coef: jnp.ndarray
 
 
 @struct.dataclass

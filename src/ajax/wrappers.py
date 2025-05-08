@@ -237,10 +237,11 @@ class NormalizeVecObservationBrax(BraxWrapper):
         super().__init__(env)
 
     def reset(self, key):
+        jax.debug.print("Reset called")
         state = self.env.reset(key)
 
         # Initialize normalization stats
-        count = jnp.zeros((state.obs.shape[0],))
+        count = jnp.zeros((state.obs.shape[0], 1))
         mean = jnp.zeros_like(state.obs)
         mean_2 = jnp.zeros_like(state.obs)
 

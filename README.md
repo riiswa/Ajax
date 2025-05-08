@@ -21,6 +21,7 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 | High Code Coverage                    | :heavy_check_mark: |
 | Logging Support                       | :heavy_check_mark: |
 | Weights & Biases (wandb) Integration  | :heavy_check_mark: |
+| Termination/Truncation handling       | :heavy_check_mark: |
 | Documentation                         | :soon:             |
 | Recurrent Network Support             | :soon:             |
 
@@ -41,7 +42,7 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 - More agents to come!
 
 ### **Environment Compatibility**
-- Works seamlessly with **Gymnax** and **Brax** environments.
+- Works seamlessly with **Gymnax** and **Brax** environments, including the handling of truncation vs termination of episodes.
 - Supports both single and parallel environments.
 
 ### **Replay Buffer**

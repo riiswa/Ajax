@@ -7,7 +7,7 @@ import wandb
 from gymnax import EnvParams
 
 from ajax.agents.AVG.state import AVGConfig
-from ajax.agents.AVG.train_AVG import init_AVG, make_train
+from ajax.agents.AVG.train_AVG import make_train
 from ajax.environments.create import prepare_env
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
@@ -29,15 +29,17 @@ class AVG:
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
         num_envs: int = 1,
-        learning_rate: float = 3e-4,
-        actor_architecture=("256", "relu", "256", "relu"),
-        critic_architecture=("256", "relu", "256", "relu"),
-        gamma: float = 0.99,
+        actor_learning_rate: float = 3e-4,
+        critic_learning_rate: float = 8.7e-4,
+        alpha_learning_rate: float = 3e-4,
+        actor_architecture=("256", "leaky_relu", "256", "leaky_relu"),
+        critic_architecture=("256", "leaky_relu", "256", "leaky_relu"),
+        gamma: float = 0.95,
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = 0.5,
         learning_starts: int = int(1e4),
         reward_scale: float = 1.0,
-        alpha_init: float = 1.0,  # FIXME: check value
+        alpha_init: float = 0.05,
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
     ) -> None:
@@ -81,7 +83,7 @@ class AVG:
         )
 
         self.alpha_args = AlphaConfig(
-            learning_rate=learning_rate,
+            learning_rate=alpha_learning_rate,
             alpha_init=alpha_init,
         )
 
@@ -93,8 +95,13 @@ class AVG:
             penultimate_normalization=True,
         )
 
-        self.optimizer_args = OptimizerConfig(
-            learning_rate=learning_rate,
+        self.actor_optimizer_args = OptimizerConfig(
+            learning_rate=actor_learning_rate,
+            max_grad_norm=max_grad_norm,
+            clipped=max_grad_norm is not None,
+        )
+        self.critic_optimizer_args = OptimizerConfig(
+            learning_rate=critic_learning_rate,
             max_grad_norm=max_grad_norm,
             clipped=max_grad_norm is not None,
         )
@@ -141,20 +148,13 @@ class AVG:
         else:
             run_ids = None
 
-        def init_state(seed):
+        def set_key_and_train(seed, index):
             key = jax.random.PRNGKey(seed)
-            return init_AVG(
-                key,
-                env_args=self.env_args,
-                optimizer_args=self.optimizer_args,
-                network_args=self.network_args,
-                alpha_args=self.alpha_args,
-            )
 
-        def set_agent_state_and_train(agent_state, index):
             train_jit = make_train(
                 env_args=self.env_args,
-                optimizer_args=self.optimizer_args,
+                actor_optimizer_args=self.actor_optimizer_args,
+                critic_optimizer_args=self.critic_optimizer_args,
                 network_args=self.network_args,
                 agent_args=self.agent_args,
                 total_timesteps=num_timesteps,
@@ -164,20 +164,20 @@ class AVG:
                 logging_config=logging_config,
             )
 
-            agent_state = train_jit(agent_state, index)
+            agent_state = train_jit(key, index)
             stop_async_logging()
             return agent_state
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        agent_states = jax.vmap(init_state, in_axes=0)(seed)
-        jax.vmap(set_agent_state_and_train, in_axes=0)(agent_states, index)
+        jax.vmap(set_key_and_train, in_axes=0)(seed, index)
 
 
 if __name__ == "__main__":
     n_seeds = 1
-    log_frequency = 20_000
+    log_frequency = 5_000
     chunk_size = 1000
+    num_envs = 1
     logging_config = LoggingConfig(
         "AVG_tests",
         "test",
@@ -187,14 +187,14 @@ if __name__ == "__main__":
             "n_seeds": n_seeds,
             "chunk_size": chunk_size,
         },
-        log_frequency=log_frequency,
-        chunk_size=chunk_size,
+        log_frequency=int(log_frequency / num_envs),
+        chunk_size=int(chunk_size / num_envs),
         horizon=10_000,
     )
-    env_id = "Pendulum-v1"
-    sac_agent = AVG(env_id=env_id, learning_starts=int(1e4))
+    env_id = "halfcheetah"
+    sac_agent = AVG(env_id=env_id, learning_starts=int(1e4), num_envs=num_envs)
     sac_agent.train(
         seed=list(range(n_seeds)),
-        num_timesteps=int(1e6),
+        num_timesteps=int(1e7) * num_envs,
         logging_config=logging_config,
     )

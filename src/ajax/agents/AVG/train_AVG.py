@@ -14,6 +14,7 @@ from jax.tree_util import Partial as partial
 from ajax.agents.AVG.state import AVGConfig, AVGState, NormalizationInfo
 from ajax.agents.AVG.utils import compute_td_error_scaling
 from ajax.environments.interaction import (
+    Transition,
     collect_experience,
     get_pi,
     init_collector_state,
@@ -102,7 +103,8 @@ def create_alpha_train_state(
 def init_AVG(
     key: jax.Array,
     env_args: EnvironmentConfig,
-    optimizer_args: OptimizerConfig,
+    actor_optimizer_args: OptimizerConfig,
+    critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     alpha_args: AlphaConfig,
 ) -> AVGState:
@@ -128,7 +130,8 @@ def init_AVG(
     actor_state, critic_state = get_initialized_actor_critic(
         key=init_key,
         env_config=env_args,
-        optimizer_config=optimizer_args,
+        actor_optimizer_config=actor_optimizer_args,
+        critic_optimizer_config=critic_optimizer_args,
         network_config=network_args,
         continuous=True,
         action_value=True,
@@ -157,6 +160,7 @@ def init_AVG(
         reward=init_norm_info,
         gamma=init_norm_info,
         G_return=init_norm_info,
+        scaling_coef=jnp.ones((env_args.num_envs, 1)),
     )
 
 
@@ -237,7 +241,9 @@ def value_loss_function(
     assert q_target.shape == log_probs.shape
     # total_loss = jnp.square(q_preds - target_q[None, ...]).mean()
 
-    total_loss = (jnp.mean((q_pred - target_q) ** 2) / scaling_coef).squeeze()
+    total_loss = jnp.mean(
+        ((q_pred - target_q) ** 2) / scaling_coef
+    ).squeeze()  # TODO : make sure scaling coef is properly computed for parallel environments, that it has proper mean count etc
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
         q_pred=q_pred.mean().flatten(),
@@ -254,6 +260,7 @@ def policy_loss_function(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
+    actions: jax.Array,
     observations: jax.Array,
     dones: Optional[jax.Array],
     recurrent: bool,
@@ -283,8 +290,7 @@ def policy_loss_function(
         done=dones,
         recurrent=recurrent,
     )
-    sample_key, rng = jax.random.split(rng)
-    actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
+    log_probs = pi.log_prob(actions)
 
     # Predict Q-values from critics
     q_pred = predict_value(
@@ -407,6 +413,7 @@ def update_value_functions(
 )
 def update_policy(
     agent_state: AVGState,
+    actions: jax.Array,
     observations: jax.Array,
     done: Optional[jax.Array],
     recurrent: bool,
@@ -433,6 +440,7 @@ def update_policy(
         agent_state.actor_state.params,
         agent_state.actor_state,
         agent_state.critic_state,
+        actions,
         observations,
         done,
         recurrent,
@@ -563,6 +571,7 @@ def update_agent(
 
     # Update policy
     agent_state, aux_policy = update_policy(
+        actions=transition.action,  # type: ignore[union-attr]
         observations=transition.obs,  # type: ignore[union-attr]
         done=done,  # type: ignore[union-attr]
         agent_state=agent_state,
@@ -619,6 +628,36 @@ def squeeze_dim_0(x):
 
 def get_nan(x):
     return jnp.nan * x
+
+
+def update_AVG_values(
+    agent_state: AVGState, rollout: Transition, agent_args: AVGConfig
+) -> AVGState:
+    done = jnp.logical_or(rollout.terminated, rollout.truncated)
+    reward = agent_state.reward.replace(value=rollout.reward)
+    gamma = agent_state.gamma.replace(value=agent_args.gamma * (1 - done))
+
+    new_G = agent_state.G_return.value + rollout.reward
+
+    temp_G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
+        done.astype("int8").squeeze(-1), no_op, get_nan, new_G
+    )  # set G_return.value to nan if not terminal, for compute_td_error_scaling
+
+    scaling_coef, reward, gamma, G_return = compute_td_error_scaling(
+        reward, gamma, G_return=agent_state.G_return.replace(value=temp_G_value)
+    )
+
+    G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
+        done.astype("int8").squeeze(-1), jnp.zeros_like, no_op, new_G
+    )  # either revert to new_G (from nan) to keep on accumulating, or reset to 0
+    G_return = G_return.replace(value=G_value)
+
+    agent_state = agent_state.replace(
+        reward=reward, gamma=gamma, G_return=G_return, scaling_coef=scaling_coef
+    )
+
+    collector_state = agent_state.collector_state.replace(rollout=rollout)
+    return agent_state.replace(collector_state=collector_state)
 
 
 @partial(
@@ -692,26 +731,7 @@ def training_iteration(
         squeeze_dim_0, rollout
     )  # Remove first dim as we only have one transition
 
-    reward = agent_state.reward.replace(value=rollout.reward)
-    new_G = (agent_state.G_return.value + rollout.reward) * (1 - rollout.terminated)
-    done = jnp.logical_or(rollout.terminated, rollout.truncated)
-    G_return = agent_state.G_return.replace(
-        value=jax.lax.cond(done.squeeze().astype("int"), get_nan, no_op, new_G)
-    )
-    gamma = agent_state.gamma.replace(value=agent_args.gamma * (1 - rollout.terminated))
-
-    scaling_coef, reward, gamma, G_return = compute_td_error_scaling(
-        reward, gamma, G_return
-    )
-    G_return = agent_state.G_return.replace(
-        value=jax.lax.select(done.squeeze().astype("int"), jnp.zeros_like(new_G), new_G)
-    )
-    agent_state = agent_state.replace(
-        reward=reward, gamma=gamma, G_return=G_return, scaling_coef=scaling_coef
-    )
-
-    collector_state = agent_state.collector_state.replace(rollout=rollout)
-    agent_state = agent_state.replace(collector_state=collector_state)
+    agent_state = update_AVG_values(agent_state, rollout, agent_args)
     timestep = agent_state.collector_state.timestep
 
     def do_update(agent_state):
@@ -773,7 +793,7 @@ def training_iteration(
             #     agent_state, chunk_size=chunk_size, horizon=horizon
             # )
             metrics_to_log = {
-                "timestep": timestep,
+                "timestep": timestep * env_args.num_envs,
                 "Eval/episodic mean reward": eval_rewards,
                 "Eval/episodic entropy": eval_entropy,
                 # "Train/episodic mean reward": episodic_mean_reward,
@@ -827,7 +847,8 @@ def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[s
 
 def make_train(
     env_args: EnvironmentConfig,
-    optimizer_args: OptimizerConfig,
+    actor_optimizer_args: OptimizerConfig,
+    critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     agent_args: AVGConfig,
     alpha_args: AlphaConfig,
@@ -860,8 +881,17 @@ def make_train(
         start_async_logging()
 
     @partial(jax.jit)
-    def train(agent_state, index: Optional[int] = None):
+    def train(key, index: Optional[int] = None):
         """Train the SAC agent."""
+
+        agent_state = init_AVG(
+            key=key,
+            env_args=env_args,
+            actor_optimizer_args=actor_optimizer_args,
+            critic_optimizer_args=critic_optimizer_args,
+            network_args=network_args,
+            alpha_args=alpha_args,
+        )
 
         num_updates = total_timesteps // env_args.num_envs
         _, action_shape = get_state_action_shapes(env_args.env, env_args.env_params)

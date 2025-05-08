@@ -42,7 +42,11 @@ def parse_activation(activation: Union[str, ActivationFunction]) -> ActivationFu
     """Parse string representing activation or jax activation function towards\
         jax activation function
     """
-    activation_matching = {"relu": nn.relu, "tanh": nn.tanh}
+    activation_matching = {
+        "relu": nn.relu,
+        "tanh": nn.tanh,
+        "leaky_relu": nn.leaky_relu,
+    }
 
     match activation:
         case str():

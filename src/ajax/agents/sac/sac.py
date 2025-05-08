@@ -30,7 +30,9 @@ class SAC:
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
         num_envs: int = 1,
-        learning_rate: float = 3e-4,
+        actor_learning_rate: float = 3e-4,
+        critic_learning_rate: float = 3e-4,
+        alpha_learning_rate: float = 3e-4,
         actor_architecture=("256", "relu", "256", "relu"),
         critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,
@@ -88,7 +90,7 @@ class SAC:
         )
 
         self.alpha_args = AlphaConfig(
-            learning_rate=learning_rate,
+            learning_rate=alpha_learning_rate,
             alpha_init=alpha_init,
         )
 
@@ -99,8 +101,13 @@ class SAC:
             squash=True,
         )
 
-        self.optimizer_args = OptimizerConfig(
-            learning_rate=learning_rate,
+        self.actor_optimizer_args = OptimizerConfig(
+            learning_rate=actor_learning_rate,
+            max_grad_norm=max_grad_norm,
+            clipped=max_grad_norm is not None,
+        )
+        self.critic_optimizer_args = OptimizerConfig(
+            learning_rate=critic_learning_rate,
             max_grad_norm=max_grad_norm,
             clipped=max_grad_norm is not None,
         )
@@ -159,7 +166,8 @@ class SAC:
 
             train_jit = make_train(
                 env_args=self.env_args,
-                optimizer_args=self.optimizer_args,
+                actor_optimizer_args=self.actor_optimizer_args,
+                critic_optimizer_args=self.critic_optimizer_args,
                 network_args=self.network_args,
                 buffer=self.buffer,
                 agent_args=self.agent_args,
